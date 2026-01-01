@@ -1,0 +1,16 @@
+{
+  "name": "mcgps-web-viewer",
+  "version": "1.0.0",
+  "description": "Real-time 3D visualization of Minecraft player positions",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["minecraft", "gps", "telemetry", "3d", "visualization"],
+  "author": "McGPS",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

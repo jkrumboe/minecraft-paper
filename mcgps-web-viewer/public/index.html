@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>McGPS - Real-time Player Tracking</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: #ffffff;
+            overflow: hidden;
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        #canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        #ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        #header {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px 25px;
+            border-radius: 10px;
+            border: 2px solid #00ff88;
+            pointer-events: auto;
+        }
+
+        #header h1 {
+            font-size: 24px;
+            color: #00ff88;
+            margin-bottom: 5px;
+        }
+
+        #status {
+            font-size: 14px;
+            color: #88ffaa;
+        }
+
+        #player-list {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            border: 2px solid #00ff88;
+            min-width: 250px;
+            max-height: 400px;
+            overflow-y: auto;
+            pointer-events: auto;
+        }
+
+        #player-list h2 {
+            font-size: 18px;
+            color: #00ff88;
+            margin-bottom: 10px;
+        }
+
+        .player-item {
+            padding: 8px;
+            margin: 5px 0;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .player-name {
+            font-weight: bold;
+            color: #00ffff;
+        }
+
+        .player-coords {
+            font-size: 12px;
+            color: #aaaaaa;
+            margin-top: 3px;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            border: 2px solid #00ff88;
+            pointer-events: auto;
+        }
+
+        #controls h3 {
+            font-size: 16px;
+            color: #00ff88;
+            margin-bottom: 10px;
+        }
+
+        #controls p {
+            font-size: 13px;
+            color: #cccccc;
+            margin: 3px 0;
+        }
+
+        .connection-status {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .connected {
+            background: #00ff00;
+            box-shadow: 0 0 10px #00ff00;
+        }
+
+        .disconnected {
+            background: #ff0000;
+            box-shadow: 0 0 10px #ff0000;
+        }
+
+        /* Scrollbar styling */
+        #player-list::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #player-list::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+        }
+
+        #player-list::-webkit-scrollbar-thumb {
+            background: #00ff88;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <canvas id="canvas"></canvas>
+        
+        <div id="ui-overlay">
+            <div id="header">
+                <h1>McGPS Viewer</h1>
+                <div id="status">
+                    <span class="connection-status disconnected" id="status-indicator"></span>
+                    <span id="status-text">Connecting...</span>
+                </div>
+            </div>
+
+            <div id="player-list">
+                <h2>Online Players (<span id="player-count">0</span>)</h2>
+                <div id="players"></div>
+            </div>
+
+            <div id="controls">
+                <h3>Controls</h3>
+                <p><strong>Mouse:</strong> Rotate camera</p>
+                <p><strong>Right Click + Drag:</strong> Pan</p>
+                <p><strong>Scroll:</strong> Zoom in/out</p>
+                <p><strong>R:</strong> Reset camera</p>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87ceeb); // Sky blue
+        scene.fog = new THREE.Fog(0x87ceeb, 100, 500);
+
+        // Camera setup
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(50, 80, 50);
+
+        // Renderer setup
+        const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        // Controls
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.minDistance = 10;
+        controls.maxDistance = 500;
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        sunLight.position.set(100, 200, 50);
+        sunLight.castShadow = true;
+        sunLight.shadow.camera.left = -200;
+        sunLight.shadow.camera.right = 200;
+        sunLight.shadow.camera.top = 200;
+        sunLight.shadow.camera.bottom = -200;
+        sunLight.shadow.camera.far = 500;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        scene.add(sunLight);
+
+        // Ground grid
+        const gridHelper = new THREE.GridHelper(500, 50, 0x00ff88, 0x444444);
+        gridHelper.position.y = 0;
+        scene.add(gridHelper);
+
+        // Y-axis reference (vertical line)
+        const axisGeometry = new THREE.CylinderGeometry(0.2, 0.2, 256, 8);
+        const axisMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        const yAxis = new THREE.Mesh(axisGeometry, axisMaterial);
+        yAxis.position.y = 128;
+        scene.add(yAxis);
+
+        // Player objects
+        const players = new Map();
+
+        // Player colors (cycle through them)
+        const playerColors = [0x00ffff, 0xff00ff, 0xffff00, 0xff8800, 0x00ff00, 0xff0088];
+        let colorIndex = 0;
+
+        /**
+         * Create or update a player in the scene
+         */
+        function updatePlayer(data) {
+            const { uuid, name, x, y, z, yaw, pitch, world } = data;
+
+            if (!players.has(uuid)) {
+                // Create new player
+                const color = playerColors[colorIndex % playerColors.length];
+                colorIndex++;
+
+                // Player body (capsule shape)
+                const bodyGeometry = new THREE.CapsuleGeometry(0.3, 1.5, 4, 8);
+                const bodyMaterial = new THREE.MeshStandardMaterial({ color: color });
+                const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+                body.castShadow = true;
+
+                // Player head direction indicator
+                const headGeometry = new THREE.ConeGeometry(0.4, 0.6, 8);
+                const headMaterial = new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity: 0.3 });
+                const head = new THREE.Mesh(headGeometry, headMaterial);
+                head.rotation.x = Math.PI / 2;
+                head.position.z = 0.5;
+                body.add(head);
+
+                // Name label (sprite)
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.width = 256;
+                canvas.height = 64;
+                context.font = 'Bold 32px Arial';
+                context.fillStyle = 'white';
+                context.textAlign = 'center';
+                context.fillText(name, 128, 40);
+
+                const texture = new THREE.CanvasTexture(canvas);
+                const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.scale.set(4, 1, 1);
+                sprite.position.y = 2;
+                body.add(sprite);
+
+                // Trail line
+                const trailGeometry = new THREE.BufferGeometry();
+                const trailMaterial = new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.5 });
+                const trail = new THREE.Line(trailGeometry, trailMaterial);
+                scene.add(trail);
+
+                players.set(uuid, {
+                    mesh: body,
+                    trail: trail,
+                    trailPoints: [],
+                    color: color,
+                    name: name
+                });
+
+                scene.add(body);
+            }
+
+            // Update player position
+            const player = players.get(uuid);
+            player.mesh.position.set(x, y, z);
+
+            // Update rotation (yaw)
+            player.mesh.rotation.y = THREE.MathUtils.degToRad(-yaw + 90);
+
+            // Update trail
+            player.trailPoints.push(new THREE.Vector3(x, y, z));
+            if (player.trailPoints.length > 50) {
+                player.trailPoints.shift();
+            }
+            player.trail.geometry.setFromPoints(player.trailPoints);
+
+            // Update name if changed
+            if (player.name !== name) {
+                player.name = name;
+                // Recreate name sprite (simplified)
+            }
+        }
+
+        /**
+         * Update player list UI
+         */
+        function updatePlayerList() {
+            const playerListDiv = document.getElementById('players');
+            const playerCountSpan = document.getElementById('player-count');
+
+            playerListDiv.innerHTML = '';
+            playerCountSpan.textContent = players.size;
+
+            players.forEach((player, uuid) => {
+                const pos = player.mesh.position;
+                const item = document.createElement('div');
+                item.className = 'player-item';
+                item.innerHTML = `
+                    <div class="player-name" style="color: #${player.color.toString(16).padStart(6, '0')}">${player.name}</div>
+                    <div class="player-coords">X: ${pos.x.toFixed(1)} Y: ${pos.y.toFixed(1)} Z: ${pos.z.toFixed(1)}</div>
+                `;
+                playerListDiv.appendChild(item);
+            });
+        }
+
+        /**
+         * Connect to telemetry stream
+         */
+        function connectToStream() {
+            const statusIndicator = document.getElementById('status-indicator');
+            const statusText = document.getElementById('status-text');
+
+            const eventSource = new EventSource('/telemetry-stream');
+
+            eventSource.onopen = () => {
+                statusIndicator.className = 'connection-status connected';
+                statusText.textContent = 'Connected';
+                console.log('Connected to telemetry stream');
+            };
+
+            eventSource.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'init') {
+                    // Initial player data
+                    Object.values(data.players).forEach(playerData => {
+                        updatePlayer(playerData);
+                    });
+                    updatePlayerList();
+                } else if (data.type === 'update') {
+                    // Player update
+                    updatePlayer(data.player);
+                    updatePlayerList();
+                }
+            };
+
+            eventSource.onerror = () => {
+                statusIndicator.className = 'connection-status disconnected';
+                statusText.textContent = 'Reconnecting...';
+                console.log('Connection lost, reconnecting...');
+            };
+        }
+
+        /**
+         * Animation loop
+         */
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        /**
+         * Handle window resize
+         */
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        /**
+         * Keyboard controls
+         */
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'r' || e.key === 'R') {
+                // Reset camera
+                camera.position.set(50, 80, 50);
+                controls.target.set(0, 0, 0);
+                controls.update();
+            }
+        });
+
+        // Start
+        connectToStream();
+        animate();
+    </script>
+</body>
+</html>
