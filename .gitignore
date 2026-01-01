@@ -1,0 +1,50 @@
+# Minecraft Server Data - Dynamic Files
+# These files change constantly during server operation
+
+# Logs
+data/logs/
+
+# World data (map files, regions, entities, etc.)
+data/world/
+data/world_nether/
+data/world_the_end/
+
+# Cache and temporary files
+data/cache/
+data/usercache.json
+data/version_history.json
+
+# Server jar files (large binary, should be downloaded)
+data/*.jar
+
+# Libraries (should be downloaded by server)
+data/libraries/
+
+# Player-specific data
+data/banned-ips.json
+data/banned-players.json
+data/ops.json
+data/whitelist.json
+
+# Plugin data directories
+data/plugins/*/
+
+# Keep plugin jars in version control but ignore subdirectories
+!data/plugins/*.jar
+
+# Paper/Spigot timings and debug files
+data/timings/
+data/crash-reports/
+
+# Backups
+data/backups/
+*.backup
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.iml

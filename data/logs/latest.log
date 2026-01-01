@@ -1,0 +1,114 @@
+[21:38:30] [ServerMain/INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]
+[21:38:35] [ServerMain/INFO]: Loaded 1174 recipes
+[21:38:36] [ServerMain/INFO]: Loaded 1271 advancements
+[21:38:36] [Server thread/INFO]: Starting minecraft server version 1.20.4
+[21:38:36] [Server thread/INFO]: Loading properties
+[21:38:36] [Server thread/INFO]: This server is running Paper version git-Paper-499 (MC: 1.20.4) (Implementing API version 1.20.4-R0.1-SNAPSHOT) (Git: 9de3f75 on ver/1.20.4)
+[21:38:37] [Server thread/INFO]: Server Ping Player Sample Count: 12
+[21:38:37] [Server thread/INFO]: Using 4 threads for Netty based IO
+[21:38:37] [Server thread/WARN]: [!] The timings profiler has been enabled but has been scheduled for removal from Paper in the future.
+    We recommend installing the spark profiler as a replacement: https://spark.lucko.me/
+    For more information please visit: https://github.com/PaperMC/Paper/issues/8948
+[21:38:37] [Server thread/INFO]: Chunk system is using 1 I/O threads, 4 worker threads, and gen parallelism of 4 threads
+[21:38:38] [Server thread/INFO]: Default game type: SURVIVAL
+[21:38:38] [Server thread/INFO]: Generating keypair
+[21:38:38] [Server thread/INFO]: Starting Minecraft server on *:25565
+[21:38:38] [Server thread/INFO]: Using epoll channel type
+[21:38:38] [Server thread/INFO]: Paper: Using libdeflate (Linux x86_64) compression from Velocity.
+[21:38:38] [Server thread/INFO]: Paper: Using OpenSSL 3.0.x (Linux x86_64) cipher from Velocity.
+[21:38:38] [Server thread/INFO]: Loading server plugin McGpsTelemetry v0.1.0
+[21:38:38] [Server thread/INFO]: Server permissions file permissions.yml is empty, ignoring it
+[21:38:38] [Server thread/WARN]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!
+[21:38:38] [Server thread/WARN]: The server will make no attempt to authenticate usernames. Beware.
+[21:38:38] [Server thread/WARN]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose.
+[21:38:38] [Server thread/WARN]: To change this, set "online-mode" to "true" in the server.properties file.
+[21:38:38] [Server thread/INFO]: Preparing level "world"
+[21:38:39] [Server thread/INFO]: Preparing start region for dimension minecraft:overworld
+[21:38:41] [Server thread/WARN]: Entity uuid already exists: cc2067c5-bad2-4877-8939-ead18bf7e7ef, mapped to EntityEnderman['Enderman'/129, uuid='cc2067c5-bad2-4877-8939-ead18bf7e7ef', l='ServerLevel[world]', x=8.70, y=34.00, z=89.30, cpos=[0, 5], tl=15578, v=true], can't add EntityEnderman['Enderman'/145, uuid='cc2067c5-bad2-4877-8939-ead18bf7e7ef', l='ServerLevel[world]', x=23.51, y=32.00, z=91.73, cpos=[1, 5], tl=11235, v=false]
+[21:38:41] [Server thread/INFO]: Time elapsed: 1988 ms
+[21:38:41] [Server thread/INFO]: Preparing start region for dimension minecraft:the_nether
+[21:38:42] [Server thread/INFO]: Time elapsed: 429 ms
+[21:38:42] [Server thread/INFO]: Preparing start region for dimension minecraft:the_end
+[21:38:42] [Server thread/INFO]: Time elapsed: 138 ms
+[21:38:42] [Server thread/INFO]: Enabling McGpsTelemetry v0.1.0
+[21:38:42] [Server thread/INFO]: Telemetry plugin enabled - tracking at 10Hz (every 2 ticks)
+[21:38:42] [Server thread/INFO]: Running delayed init tasks
+[21:38:42] [Server thread/INFO]: Done (5.803s)! For help, type "help"
+[21:38:42] [Server thread/INFO]: Timings Reset
+[21:38:53] [User Authenticator #0/INFO]: UUID of player BeerikObama is a9ea3b3c-81af-31cb-807e-d629ef6e97f3
+[21:38:53] [Server thread/INFO]: BeerikObama joined the game
+[21:38:53] [Server thread/INFO]: BeerikObama[/172.21.0.1:55210] logged in with entity id 262 at ([world]4.084504278059902, 72.0, 30.593935250707375)
+[21:38:53] [Server thread/INFO]: {"ts":1767303533726,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":4.085,"y":72.000,"z":30.594,"yaw":-126.66,"pitch":18.50,"onGround":false}
+[21:38:56] [Server thread/INFO]: BeerikObama issued server command: /gamemode creative
+[21:38:56] [Server thread/INFO]: [BeerikObama: Set own game mode to Creative Mode]
+[21:38:57] [Server thread/INFO]: {"ts":1767303537090,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":4.284,"y":72.000,"z":30.445,"yaw":-126.73,"pitch":18.02,"onGround":true}
+[21:38:57] [Server thread/INFO]: {"ts":1767303537190,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":4.587,"y":72.000,"z":30.219,"yaw":-126.73,"pitch":18.02,"onGround":true}
+[21:38:57] [Server thread/INFO]: {"ts":1767303537290,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":4.720,"y":72.000,"z":30.120,"yaw":-126.73,"pitch":18.02,"onGround":true}
+[21:38:57] [Server thread/INFO]: {"ts":1767303537490,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":4.772,"y":72.000,"z":30.081,"yaw":-122.92,"pitch":17.51,"onGround":true}
+[21:38:57] [Server thread/INFO]: {"ts":1767303537590,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":4.772,"y":72.000,"z":30.081,"yaw":-118.82,"pitch":17.99,"onGround":true}
+[21:38:57] [Server thread/INFO]: {"ts":1767303537990,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":4.772,"y":72.000,"z":30.081,"yaw":-99.32,"pitch":17.14,"onGround":true}
+[21:38:58] [Server thread/INFO]: {"ts":1767303538090,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":4.772,"y":72.000,"z":30.081,"yaw":-91.04,"pitch":17.77,"onGround":true}
+[21:39:18] [Server thread/INFO]: BeerikObama lost connection: Disconnected
+[21:39:18] [Server thread/INFO]: BeerikObama left the game
+[21:39:18] [User Authenticator #0/INFO]: UUID of player BeerikObama is a9ea3b3c-81af-31cb-807e-d629ef6e97f3
+[21:39:19] [Server thread/INFO]: BeerikObama joined the game
+[21:39:19] [Server thread/INFO]: BeerikObama[/172.21.0.1:36236] logged in with entity id 280 at ([world]4.7715178045525874, 72.0, 30.081341853783595)
+[21:39:19] [Server thread/INFO]: {"ts":1767303559189,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":4.772,"y":72.000,"z":30.081,"yaw":-91.04,"pitch":17.77,"onGround":false}
+[21:39:19] [Server thread/INFO]: {"ts":1767303559788,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":4.772,"y":72.000,"z":30.081,"yaw":-94.30,"pitch":17.69,"onGround":true}
+[21:39:19] [Server thread/INFO]: {"ts":1767303559888,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":4.772,"y":72.000,"z":30.081,"yaw":-100.35,"pitch":17.69,"onGround":true}
+[21:39:19] [Server thread/INFO]: {"ts":1767303559988,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":4.772,"y":72.000,"z":30.081,"yaw":-119.95,"pitch":17.80,"onGround":true}
+[21:39:20] [Server thread/INFO]: {"ts":1767303560688,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":4.772,"y":72.000,"z":30.081,"yaw":-105.88,"pitch":17.25,"onGround":true}
+[21:39:20] [Server thread/INFO]: {"ts":1767303560788,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":4.772,"y":72.000,"z":30.081,"yaw":-100.86,"pitch":17.88,"onGround":true}
+[21:39:21] [Server thread/INFO]: {"ts":1767303561088,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":5.017,"y":72.000,"z":30.034,"yaw":-100.86,"pitch":17.66,"onGround":true}
+[21:39:21] [Server thread/INFO]: {"ts":1767303561188,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":5.387,"y":72.000,"z":29.960,"yaw":-101.74,"pitch":17.66,"onGround":true}
+[21:39:21] [Server thread/INFO]: {"ts":1767303561288,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":5.793,"y":72.000,"z":29.872,"yaw":-103.68,"pitch":17.62,"onGround":true}
+[21:39:21] [Server thread/INFO]: {"ts":1767303561388,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.195,"y":72.000,"z":29.737,"yaw":-117.53,"pitch":17.58,"onGround":true}
+[21:39:21] [Server thread/INFO]: {"ts":1767303561488,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.560,"y":72.000,"z":29.519,"yaw":-128.82,"pitch":18.10,"onGround":true}
+[21:39:21] [Server thread/INFO]: {"ts":1767303561588,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.828,"y":72.000,"z":29.326,"yaw":-128.82,"pitch":18.10,"onGround":true}
+[21:39:21] [Server thread/INFO]: {"ts":1767303561788,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.932,"y":72.000,"z":29.251,"yaw":-128.82,"pitch":18.10,"onGround":true}
+[21:39:22] [Server thread/INFO]: {"ts":1767303562288,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.937,"y":72.000,"z":29.248,"yaw":-141.76,"pitch":16.04,"onGround":true}
+[21:39:22] [Server thread/INFO]: {"ts":1767303562388,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.937,"y":72.000,"z":29.248,"yaw":-150.48,"pitch":14.25,"onGround":true}
+[21:39:22] [Server thread/INFO]: {"ts":1767303562488,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.937,"y":72.000,"z":29.248,"yaw":-161.95,"pitch":12.12,"onGround":true}
+[21:39:22] [Server thread/INFO]: {"ts":1767303562588,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.937,"y":72.000,"z":29.248,"yaw":179.77,"pitch":10.33,"onGround":true}
+[21:39:22] [Server thread/INFO]: {"ts":1767303562688,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.937,"y":72.000,"z":29.248,"yaw":155.81,"pitch":12.01,"onGround":true}
+[21:39:23] [Server thread/INFO]: {"ts":1767303563388,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.937,"y":72.420,"z":29.248,"yaw":176.80,"pitch":12.27,"onGround":false}
+[21:39:23] [Server thread/INFO]: {"ts":1767303563488,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.937,"y":73.001,"z":29.248,"yaw":-154.73,"pitch":12.82,"onGround":false}
+[21:39:23] [Server thread/INFO]: {"ts":1767303563588,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.937,"y":73.399,"z":29.248,"yaw":-154.73,"pitch":12.82,"onGround":false}
+[21:39:23] [Server thread/INFO]: {"ts":1767303563688,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.937,"y":74.013,"z":29.248,"yaw":-154.73,"pitch":12.82,"onGround":false}
+[21:39:23] [Server thread/INFO]: {"ts":1767303563788,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.937,"y":74.714,"z":29.248,"yaw":-154.73,"pitch":12.82,"onGround":false}
+[21:39:23] [Server thread/INFO]: {"ts":1767303563888,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.937,"y":75.446,"z":29.248,"yaw":-154.69,"pitch":12.82,"onGround":false}
+[21:39:23] [Server thread/INFO]: {"ts":1767303563988,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.937,"y":76.190,"z":29.248,"yaw":-149.41,"pitch":12.97,"onGround":false}
+[21:39:24] [Server thread/INFO]: {"ts":1767303564088,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.937,"y":76.938,"z":29.248,"yaw":-128.60,"pitch":14.91,"onGround":false}
+[21:39:24] [Server thread/INFO]: {"ts":1767303564188,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.913,"y":77.687,"z":29.205,"yaw":-118.74,"pitch":16.01,"onGround":false}
+[21:39:24] [Server thread/INFO]: {"ts":1767303564288,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.827,"y":78.286,"z":29.048,"yaw":-118.74,"pitch":16.01,"onGround":false}
+[21:39:24] [Server thread/INFO]: {"ts":1767303564388,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.756,"y":78.502,"z":28.918,"yaw":-118.74,"pitch":16.01,"onGround":false}
+[21:39:24] [Server thread/INFO]: {"ts":1767303564488,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.697,"y":78.580,"z":28.811,"yaw":-118.74,"pitch":16.01,"onGround":false}
+[21:39:24] [Server thread/INFO]: {"ts":1767303564588,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.648,"y":78.608,"z":28.722,"yaw":-118.63,"pitch":15.93,"onGround":false}
+[21:39:24] [Server thread/INFO]: {"ts":1767303564788,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.574,"y":78.618,"z":28.587,"yaw":-118.01,"pitch":15.71,"onGround":false}
+[21:39:24] [Server thread/INFO]: {"ts":1767303564988,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.524,"y":78.618,"z":28.494,"yaw":-118.01,"pitch":15.71,"onGround":false}
+[21:39:25] [Server thread/INFO]: {"ts":1767303565288,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.519,"y":78.618,"z":28.385,"yaw":-117.24,"pitch":15.86,"onGround":false}
+[21:39:25] [Server thread/INFO]: {"ts":1767303565388,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.629,"y":78.618,"z":28.188,"yaw":-117.24,"pitch":15.86,"onGround":false}
+[21:39:25] [Server thread/INFO]: {"ts":1767303565488,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.779,"y":78.618,"z":27.843,"yaw":-116.14,"pitch":15.68,"onGround":false}
+[21:39:25] [Server thread/INFO]: {"ts":1767303565588,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":6.967,"y":78.618,"z":27.377,"yaw":-115.48,"pitch":16.37,"onGround":false}
+[21:39:25] [Server thread/INFO]: {"ts":1767303565688,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":7.186,"y":78.618,"z":26.811,"yaw":-115.48,"pitch":16.37,"onGround":false}
+[21:39:25] [Server thread/INFO]: {"ts":1767303565788,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":7.383,"y":78.618,"z":26.300,"yaw":-115.48,"pitch":16.37,"onGround":false}
+[21:39:25] [Server thread/INFO]: {"ts":1767303565888,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":7.545,"y":78.618,"z":25.877,"yaw":-115.48,"pitch":16.37,"onGround":false}
+[21:39:25] [Server thread/INFO]: {"ts":1767303565988,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":7.680,"y":78.618,"z":25.526,"yaw":-115.48,"pitch":16.37,"onGround":false}
+[21:39:26] [Server thread/INFO]: {"ts":1767303566088,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":7.792,"y":78.618,"z":25.236,"yaw":-115.48,"pitch":16.37,"onGround":false}
+[21:39:26] [Server thread/INFO]: {"ts":1767303566188,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":7.885,"y":78.618,"z":24.995,"yaw":-115.48,"pitch":16.37,"onGround":false}
+[21:39:26] [Server thread/INFO]: {"ts":1767303566288,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":7.961,"y":78.618,"z":24.796,"yaw":-115.48,"pitch":16.37,"onGround":false}
+[21:39:26] [Server thread/INFO]: {"ts":1767303566388,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":8.025,"y":78.618,"z":24.631,"yaw":-112.99,"pitch":16.08,"onGround":false}
+[21:39:26] [Server thread/INFO]: {"ts":1767303566488,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":8.126,"y":78.618,"z":24.494,"yaw":-91.19,"pitch":17.91,"onGround":false}
+[21:39:26] [Server thread/INFO]: {"ts":1767303566588,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":8.394,"y":78.618,"z":24.408,"yaw":-77.85,"pitch":19.67,"onGround":false}
+[21:39:26] [Server thread/INFO]: {"ts":1767303566688,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":8.752,"y":78.618,"z":24.365,"yaw":-77.85,"pitch":19.67,"onGround":false}
+[21:39:26] [Server thread/INFO]: {"ts":1767303566788,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":9.048,"y":78.618,"z":24.330,"yaw":-77.85,"pitch":19.67,"onGround":false}
+[21:39:26] [Server thread/INFO]: {"ts":1767303566888,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":9.253,"y":78.618,"z":24.438,"yaw":-67.77,"pitch":19.63,"onGround":false}
+[21:39:26] [Server thread/INFO]: {"ts":1767303566988,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":9.419,"y":78.618,"z":24.713,"yaw":-43.70,"pitch":19.20,"onGround":false}
+[21:39:27] [Server thread/INFO]: {"ts":1767303567088,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":9.579,"y":78.618,"z":25.119,"yaw":-39.71,"pitch":18.94,"onGround":false}
+[21:39:27] [Server thread/INFO]: {"ts":1767303567188,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":9.830,"y":79.008,"z":25.599,"yaw":-39.85,"pitch":18.90,"onGround":false}
+[21:39:27] [Server thread/INFO]: {"ts":1767303567288,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":10.140,"y":79.239,"z":26.118,"yaw":-39.85,"pitch":18.90,"onGround":false}
+[21:39:27] [Server thread/INFO]: {"ts":1767303567388,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":10.444,"y":79.173,"z":26.604,"yaw":-39.85,"pitch":18.90,"onGround":false}
+[21:39:27] [Server thread/INFO]: {"ts":1767303567488,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":10.751,"y":78.799,"z":27.052,"yaw":-39.93,"pitch":18.87,"onGround":false}
+[21:39:27] [Server thread/INFO]: {"ts":1767303567588,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":11.077,"y":78.129,"z":27.415,"yaw":-39.96,"pitch":18.87,"onGround":false}
+[21:39:27] [Server thread/INFO]: {"ts":1767303567688,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":11.360,"y":78.000,"z":27.700,"yaw":-39.96,"pitch":18.87,"onGround":true}
+[21:39:27] [Server thread/INFO]: {"ts":1767303567788,"uuid":"a9ea3b3c-81af-31cb-807e-d629ef6e97f3","name":"BeerikObama","world":"world","x":11.474,"y":78.000,"z":27.700,"yaw":-42.16,"pitch":17.69,"onGround":true}
