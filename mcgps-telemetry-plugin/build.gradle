@@ -1,0 +1,59 @@
+/*
+ * McGpsTelemetry Plugin - Build Configuration
+ * 
+ * BUILDING THE PLUGIN:
+ *   1. Navigate to this directory (mcgps-telemetry-plugin/)
+ *   2. Run: ./gradlew shadowJar (Linux/Mac) or gradlew.bat shadowJar (Windows)
+ *   3. Find the jar at: build/libs/mcgps-telemetry-0.1.0-all.jar
+ * 
+ * INSTALLING IN DOCKER SERVER:
+ *   1. Copy the jar: docker cp build/libs/mcgps-telemetry-0.1.0-all.jar minecraft-paper:/data/plugins/
+ *   2. Restart server: docker restart minecraft-paper
+ *   OR if server is already running: use /reload command (not recommended for production)
+ * 
+ * VERIFYING:
+ *   - Check logs: docker logs -f minecraft-paper
+ *   - Look for: "[McGpsTelemetry] Telemetry plugin enabled"
+ *   - JSON telemetry lines will appear as players move
+ */
+
+plugins {
+    id 'java'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+group = 'dev.mcgps'
+version = '0.1.0'
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'papermc'
+        url = 'https://repo.papermc.io/repository/maven-public/'
+    }
+}
+
+dependencies {
+    compileOnly 'io.papermc.paper:paper-api:1.20.4-R0.1-SNAPSHOT'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+
+shadowJar {
+    archiveClassifier.set('all')
+    
+    // Minimize jar size by excluding unnecessary files
+    minimize()
+}
+
+// Make 'build' task depend on shadowJar
+build.dependsOn shadowJar

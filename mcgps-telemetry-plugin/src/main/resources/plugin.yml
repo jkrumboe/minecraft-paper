@@ -1,0 +1,11 @@
+name: McGpsTelemetry
+main: dev.mcgps.telemetry.McGpsTelemetryPlugin
+version: 0.1.0
+api-version: "1.20"
+author: McGPS
+description: Logs player positions as JSON for external visualization
+
+commands:
+  mcgpsdebug:
+    description: Toggle telemetry logging for yourself
+    usage: /mcgpsdebug <on|off>
