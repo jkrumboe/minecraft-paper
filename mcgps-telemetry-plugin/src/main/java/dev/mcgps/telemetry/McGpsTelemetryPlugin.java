@@ -15,16 +15,21 @@ import org.jetbrains.annotations.NotNull;
 public class McGpsTelemetryPlugin extends JavaPlugin {
     
     private TelemetryService telemetryService;
+    private ChunkStreamService chunkStreamService;
     
     @Override
     public void onEnable() {
         // Initialize telemetry service
         telemetryService = new TelemetryService(this);
+        chunkStreamService = new ChunkStreamService(this);
         
         // Start the telemetry task (runs every 2 ticks = 10 times per second)
         telemetryService.start();
         
-        getLogger().info("Telemetry plugin enabled - tracking at 10Hz (every 2 ticks)");
+        // Start chunk streaming (runs every 3 seconds)
+        chunkStreamService.start();
+        
+        getLogger().info("Telemetry plugin enabled - tracking at 10Hz with chunk streaming");
     }
     
     @Override
@@ -32,6 +37,11 @@ public class McGpsTelemetryPlugin extends JavaPlugin {
         // Stop the telemetry task
         if (telemetryService != null) {
             telemetryService.stop();
+        }
+        
+        // Stop chunk streaming
+        if (chunkStreamService != null) {
+            chunkStreamService.stop();
         }
         
         getLogger().info("Telemetry plugin disabled");

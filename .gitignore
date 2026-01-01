@@ -1,6 +1,8 @@
 # Minecraft Server Data - Dynamic Files
 # These files change constantly during server operation
 
+data
+
 # Logs
 data/logs/
 

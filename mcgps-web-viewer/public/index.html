@@ -155,6 +155,20 @@
             background: #00ff88;
             border-radius: 10px;
         }
+
+        #fps-counter {
+            position: absolute;
+            top: 20px;
+            left: 250px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px 15px;
+            border-radius: 10px;
+            border: 2px solid #00ff88;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            color: #00ff88;
+            pointer-events: auto;
+        }
     </style>
 </head>
 <body>
@@ -177,10 +191,15 @@
 
             <div id="controls">
                 <h3>Controls</h3>
-                <p><strong>Mouse:</strong> Rotate camera</p>
-                <p><strong>Right Click + Drag:</strong> Pan</p>
-                <p><strong>Scroll:</strong> Zoom in/out</p>
+                <p><strong>Left Click + Drag:</strong> Look around</p>
+                <p><strong>WASD:</strong> Move camera</p>
+                <p><strong>Space/Shift:</strong> Move up/down</p>
+                <p><strong>Hold Shift + WASD:</strong> Move faster</p>
                 <p><strong>R:</strong> Reset camera</p>
+            </div>
+
+            <div id="fps-counter">
+                FPS: <span id="fps-value">0</span>
             </div>
         </div>
     </div>
@@ -196,7 +215,6 @@
 
     <script type="module">
         import * as THREE from 'three';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
         // Scene setup
         const scene = new THREE.Scene();
@@ -213,12 +231,65 @@
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-        // Controls
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
-        controls.minDistance = 10;
-        controls.maxDistance = 500;
+        // First-person camera controls
+        let yaw = 0;
+        let pitch = 0;
+        let isDragging = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+
+        const canvas = renderer.domElement;
+        
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 0) { // Left click
+                isDragging = true;
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+                canvas.style.cursor = 'grabbing';
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+            canvas.style.cursor = 'default';
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            isDragging = false;
+            canvas.style.cursor = 'default';
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const deltaX = e.clientX - lastMouseX;
+                const deltaY = e.clientY - lastMouseY;
+                
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+                
+                // Update yaw (horizontal rotation) and pitch (vertical rotation)
+                yaw -= deltaX * 0.002;
+                pitch -= deltaY * 0.002;
+                
+                // Clamp pitch to avoid gimbal lock
+                pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+                
+                // Update camera rotation
+                camera.rotation.order = 'YXZ';
+                camera.rotation.y = yaw;
+                camera.rotation.x = pitch;
+            }
+        });
+
+        // Keyboard state
+        const keys = {
+            w: false,
+            a: false,
+            s: false,
+            d: false,
+            shift: false,
+            space: false
+        };
 
         // Lighting
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -248,6 +319,72 @@
         yAxis.position.y = 128;
         scene.add(yAxis);
 
+        // Block rendering setup
+        const blockGroup = new THREE.Group();
+        scene.add(blockGroup);
+
+        // Block materials
+        const blockMaterials = {
+            grass: new THREE.MeshLambertMaterial({ color: 0x5fad56 }), // Green
+            dirt: new THREE.MeshLambertMaterial({ color: 0x8b5a3c }), // Brown
+            stone: new THREE.MeshLambertMaterial({ color: 0x7f7f7f }), // Gray
+            sand: new THREE.MeshLambertMaterial({ color: 0xdbc17f }), // Tan
+            water: new THREE.MeshLambertMaterial({ color: 0x2389da, transparent: true, opacity: 0.7 }) // Blue transparent
+        };
+
+        // Block geometry (reused for all blocks)
+        const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+
+        /**
+         * Load and render blocks around a position
+         */
+        async function loadBlocks(x, z, radius = 32) {
+            try {
+                const response = await fetch(`/api/blocks?x=${Math.floor(x)}&z=${Math.floor(z)}&radius=${radius}`);
+                const data = await response.json();
+                
+                // Clear existing blocks
+                blockGroup.clear();
+                
+                // Render blocks
+                data.blocks.forEach(block => {
+                    const material = blockMaterials[block.type] || blockMaterials.stone;
+                    const blockMesh = new THREE.Mesh(blockGeometry, material);
+                    blockMesh.position.set(block.x, block.y, block.z);
+                    blockMesh.castShadow = true;
+                    blockMesh.receiveShadow = true;
+                    blockGroup.add(blockMesh);
+                });
+                
+                console.log(`Loaded ${data.blocks.length} blocks`);
+            } catch (error) {
+                console.error('Failed to load blocks:', error);
+            }
+        }
+
+        // Load initial blocks at spawn (smaller radius for better performance)
+        loadBlocks(0, 0, 30);
+
+        /**
+         * Update chunks from streamed data (real-time from plugin)
+         */
+        function updateChunks(chunkData) {
+            // Clear existing blocks
+            blockGroup.clear();
+            
+            // Render blocks from stream
+            chunkData.blocks.forEach(block => {
+                const material = blockMaterials[block.type] || blockMaterials.stone;
+                const blockMesh = new THREE.Mesh(blockGeometry, material);
+                blockMesh.position.set(block.x, block.y, block.z);
+                blockMesh.castShadow = true;
+                blockMesh.receiveShadow = true;
+                blockGroup.add(blockMesh);
+            });
+            
+            console.log(`Updated ${chunkData.blocks.length} blocks from real-time stream`);
+        }
+
         // Player objects
         const players = new Map();
 
@@ -266,19 +403,41 @@
                 const color = playerColors[colorIndex % playerColors.length];
                 colorIndex++;
 
-                // Player body (capsule shape)
-                const bodyGeometry = new THREE.CapsuleGeometry(0.3, 1.5, 4, 8);
+                // Player body (smaller box)
+                const bodyGeometry = new THREE.BoxGeometry(0.4, 0.9, 0.2);
                 const bodyMaterial = new THREE.MeshStandardMaterial({ color: color });
                 const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
                 body.castShadow = true;
 
-                // Player head direction indicator
-                const headGeometry = new THREE.ConeGeometry(0.4, 0.6, 8);
-                const headMaterial = new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity: 0.3 });
+                // Player head with Minecraft skin
+                const headGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+                
+                // Try to load Minecraft player skin from crafatar.com
+                const skinLoader = new THREE.TextureLoader();
+                const skinUrl = `https://crafatar.com/avatars/${uuid}?size=64&overlay`;
+                const headMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xffffff,
+                    map: skinLoader.load(skinUrl, 
+                        () => console.log(`Loaded skin for ${name}`),
+                        undefined,
+                        () => {
+                            // Fallback to colored head if skin fails to load
+                            headMaterial.color.set(color);
+                        }
+                    )
+                });
                 const head = new THREE.Mesh(headGeometry, headMaterial);
-                head.rotation.x = Math.PI / 2;
-                head.position.z = 0.5;
+                head.position.y = 0.7;
                 body.add(head);
+                
+                // Direction indicator (small arrow)
+                const arrowGeometry = new THREE.ConeGeometry(0.15, 0.3, 8);
+                const arrowMaterial = new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity: 0.5 });
+                const arrow = new THREE.Mesh(arrowGeometry, arrowMaterial);
+                arrow.rotation.x = Math.PI / 2;
+                arrow.position.z = 0.35;
+                arrow.position.y = 0.7;
+                body.add(arrow);
 
                 // Name label (sprite)
                 const canvas = document.createElement('canvas');
@@ -293,8 +452,8 @@
                 const texture = new THREE.CanvasTexture(canvas);
                 const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
                 const sprite = new THREE.Sprite(spriteMaterial);
-                sprite.scale.set(4, 1, 1);
-                sprite.position.y = 2;
+                sprite.scale.set(3, 0.75, 1);
+                sprite.position.y = 1.5;
                 body.add(sprite);
 
                 // Trail line
@@ -385,6 +544,10 @@
                     // Player update
                     updatePlayer(data.player);
                     updatePlayerList();
+                } else if (data.type === 'chunks') {
+                    // Chunk data streamed from plugin
+                    console.log(`Received ${data.data.blocks.length} blocks from chunk stream`);
+                    updateChunks(data.data);
                 }
             };
 
@@ -398,9 +561,56 @@
         /**
          * Animation loop
          */
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+
         function animate() {
             requestAnimationFrame(animate);
-            controls.update();
+
+            // Calculate FPS
+            frameCount++;
+            const currentTime = performance.now();
+            const deltaTime = (currentTime - lastTime) / 1000;
+
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps-value').textContent = fps;
+            }
+
+            // Handle WASD camera movement
+            const moveSpeed = keys.shift ? 2.0 : 1.0;
+            
+            // Get camera's forward and right vectors
+            const forward = new THREE.Vector3();
+            camera.getWorldDirection(forward);
+            forward.y = 0;
+            forward.normalize();
+
+            const right = new THREE.Vector3();
+            right.crossVectors(forward, camera.up).normalize();
+
+            if (keys.w) {
+                camera.position.addScaledVector(forward, moveSpeed);
+            }
+            if (keys.s) {
+                camera.position.addScaledVector(forward, -moveSpeed);
+            }
+            if (keys.a) {
+                camera.position.addScaledVector(right, -moveSpeed);
+            }
+            if (keys.d) {
+                camera.position.addScaledVector(right, moveSpeed);
+            }
+            if (keys.space) {
+                camera.position.y += moveSpeed;
+            }
+            if (keys.shift && !keys.w && !keys.s && !keys.a && !keys.d) {
+                camera.position.y -= moveSpeed;
+            }
+
             renderer.render(scene, camera);
         }
 
@@ -417,12 +627,31 @@
          * Keyboard controls
          */
         window.addEventListener('keydown', (e) => {
-            if (e.key === 'r' || e.key === 'R') {
+            const key = e.key.toLowerCase();
+            if (key === 'w') keys.w = true;
+            if (key === 'a') keys.a = true;
+            if (key === 's') keys.s = true;
+            if (key === 'd') keys.d = true;
+            if (key === 'shift') keys.shift = true;
+            if (key === ' ') keys.space = true;
+            
+            if (key === 'r') {
                 // Reset camera
                 camera.position.set(50, 80, 50);
-                controls.target.set(0, 0, 0);
-                controls.update();
+                yaw = 0;
+                pitch = 0;
+                camera.rotation.set(0, 0, 0);
             }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            const key = e.key.toLowerCase();
+            if (key === 'w') keys.w = false;
+            if (key === 'a') keys.a = false;
+            if (key === 's') keys.s = false;
+            if (key === 'd') keys.d = false;
+            if (key === 'shift') keys.shift = false;
+            if (key === ' ') keys.space = false;
         });
 
         // Start
