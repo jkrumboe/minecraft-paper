@@ -25,11 +25,8 @@ const PORT = 3000;
 const playerData = new Map();
 const MAX_HISTORY = 100;
 
-// Store chunk data per player
-const chunkData = new Map();
-
-// Store the most recent chunk data for initial load
-let lastChunkData = null;
+// Store loaded chunks per player (chunkKey -> blocks)
+const loadedChunks = new Map();
 
 // Store player skin data (resolved from Mojang API)
 const playerSkins = new Map();
@@ -73,10 +70,12 @@ app.get('/telemetry-stream', (req, res) => {
     
     res.write(`data: ${JSON.stringify({ type: 'init', players: currentData })}\n\n`);
     
-    // Send cached chunk data if available
-    if (lastChunkData) {
-        console.log(`Sending cached chunk data (${lastChunkData.blocks.length} blocks) to new client`);
-        res.write(`data: ${JSON.stringify({ type: 'chunks', data: lastChunkData })}\n\n`);
+    // Send all cached chunks to new client
+    if (loadedChunks.size > 0) {
+        console.log(`Sending ${loadedChunks.size} cached chunks to new client`);
+        loadedChunks.forEach((chunkInfo, chunkKey) => {
+            res.write(`data: ${JSON.stringify({ type: 'chunk', data: chunkInfo })}\n\n`);
+        });
     }
 
     // Remove client on disconnect
@@ -192,11 +191,29 @@ function parseTelemetryLine(line) {
     try {
         const data = JSON.parse(jsonStr);
         
-        // Check if it's chunk data
+        // Check if it's a single chunk (new incremental format)
+        if (data.type === 'chunk' && data.uuid && data.blocks) {
+            const chunkKey = `${data.chunkX},${data.chunkZ}`;
+            console.log(`Received chunk (${chunkKey}): ${data.blocks.length} blocks`);
+            storeChunk(data);
+            broadcastChunk(data);
+            return;
+        }
+        
+        // Check if it's chunk unload data
+        if (data.type === 'chunk_unload' && data.chunks) {
+            console.log(`Unloading ${data.chunks.length} chunks`);
+            unloadChunks(data.chunks);
+            broadcastChunkUnload(data);
+            return;
+        }
+        
+        // Check if it's old-style bulk chunks (backwards compatibility)
         if (data.type === 'chunks' && data.uuid && data.blocks) {
-            console.log(`Received chunk data: ${data.blocks.length} blocks for player ${data.uuid}`);
-            storeChunkData(data);
-            broadcastChunkData(data);
+            console.log(`Received bulk chunk data: ${data.blocks.length} blocks for player ${data.uuid}`);
+            // Convert to individual chunk format for storage
+            storeBulkChunks(data);
+            broadcastBulkChunks(data);
             return;
         }
         
@@ -269,31 +286,89 @@ async function storeTelemetry(data) {
 }
 
 /**
- * Store chunk data for a player
+ * Store a single chunk
  */
-function storeChunkData(data) {
-    const uuid = data.uuid;
-    chunkData.set(uuid, {
+function storeChunk(data) {
+    const chunkKey = `${data.chunkX},${data.chunkZ}`;
+    loadedChunks.set(chunkKey, {
+        chunkX: data.chunkX,
+        chunkZ: data.chunkZ,
         blocks: data.blocks,
-        center: data.center,
-        radius: data.radius,
         world: data.world,
         ts: data.ts
     });
-    
-    // Cache the chunk data for new clients
-    lastChunkData = {
-        blocks: data.blocks,
-        center: data.center,
-        radius: data.radius
-    };
-    console.log(`Cached chunk data with ${data.blocks.length} blocks`);
 }
 
 /**
- * Broadcast chunk data to all connected clients
+ * Unload chunks
  */
-function broadcastChunkData(data) {
+function unloadChunks(chunks) {
+    for (const chunk of chunks) {
+        const chunkKey = `${chunk.x},${chunk.z}`;
+        loadedChunks.delete(chunkKey);
+    }
+}
+
+/**
+ * Store bulk chunks (backwards compatibility)
+ */
+function storeBulkChunks(data) {
+    // Group blocks by chunk
+    const chunkBlocks = new Map();
+    for (const block of data.blocks) {
+        const chunkX = Math.floor(block.x / 16);
+        const chunkZ = Math.floor(block.z / 16);
+        const key = `${chunkX},${chunkZ}`;
+        if (!chunkBlocks.has(key)) {
+            chunkBlocks.set(key, { chunkX, chunkZ, blocks: [] });
+        }
+        chunkBlocks.get(key).blocks.push(block);
+    }
+    
+    // Store each chunk
+    chunkBlocks.forEach((chunkInfo, key) => {
+        loadedChunks.set(key, {
+            ...chunkInfo,
+            world: data.world,
+            ts: data.ts
+        });
+    });
+}
+
+/**
+ * Broadcast a single chunk to all connected clients
+ */
+function broadcastChunk(data) {
+    const message = `data: ${JSON.stringify({ type: 'chunk', data })}\n\n`;
+    
+    clients.forEach(client => {
+        try {
+            client.write(message);
+        } catch (err) {
+            clients.delete(client);
+        }
+    });
+}
+
+/**
+ * Broadcast chunk unload to all clients
+ */
+function broadcastChunkUnload(data) {
+    const message = `data: ${JSON.stringify({ type: 'chunk_unload', data })}\n\n`;
+    
+    clients.forEach(client => {
+        try {
+            client.write(message);
+        } catch (err) {
+            clients.delete(client);
+        }
+    });
+}
+
+/**
+ * Broadcast bulk chunks (backwards compatibility)
+ */
+function broadcastBulkChunks(data) {
     const message = `data: ${JSON.stringify({ type: 'chunks', data })}\n\n`;
     
     clients.forEach(client => {
@@ -365,18 +440,22 @@ app.get('/api/players/:uuid/history', (req, res) => {
  * API endpoint to get cached chunk data (legacy endpoint, mainly for debugging)
  */
 app.get('/api/blocks', (req, res) => {
-    // Return cached chunk data if available
-    if (lastChunkData && lastChunkData.blocks.length > 0) {
+    // Collect all blocks from loaded chunks
+    const allBlocks = [];
+    loadedChunks.forEach((chunkInfo) => {
+        allBlocks.push(...chunkInfo.blocks);
+    });
+    
+    if (allBlocks.length > 0) {
         return res.json({ 
-            blocks: lastChunkData.blocks, 
-            center: lastChunkData.center, 
-            radius: lastChunkData.radius, 
+            blocks: allBlocks, 
+            chunkCount: loadedChunks.size,
             source: 'stream' 
         });
     }
     
     // No data available
-    res.json({ blocks: [], center: { x: 0, z: 0 }, radius: 0, source: 'none' });
+    res.json({ blocks: [], chunkCount: 0, source: 'none' });
 });
 
 /**

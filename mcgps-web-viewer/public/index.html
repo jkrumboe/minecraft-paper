@@ -26,6 +26,7 @@
     <div id="info">
         <div>FPS: <span id="fps">0</span></div>
         <div>Blocks: <span id="block-count">0</span></div>
+        <div>Rendered: <span id="rendered-chunks">0</span></div>
         <div>Players: <span id="player-count">0</span></div>
         <div>Camera: <span id="camera-pos">0, 0, 0</span></div>
     </div>
@@ -176,13 +177,16 @@
         const chunkGroup = new THREE.Group();
         scene.add(chunkGroup);
         
+        // Track loaded chunk data for incremental updates
+        const loadedChunkData = new Map(); // Map<chunkKey, { blocks: [], chunkX, chunkZ }>
+        
         const players = new Map();
         let pendingBlocks = null;
         
-        // Global block map for incremental updates
+        // Global block map for occlusion culling
         let globalBlockMap = new Map();
-        let globalBlocks = [];
         let needsRebuild = false;
+        let initialCameraPositioned = false;
         
         // Pre-computed face vertex data for speed
         const FACE_DATA = {
@@ -204,6 +208,11 @@
             const cy = Math.floor(y / CHUNK_SIZE);
             const cz = Math.floor(z / CHUNK_SIZE);
             return `${cx},${cy},${cz}`;
+        }
+        
+        // Get 2D chunk key (for server communication which uses x,z chunks)
+        function getChunkKey2D(chunkX, chunkZ) {
+            return `${chunkX},${chunkZ}`;
         }
 
         // Build optimized geometry for a chunk
@@ -292,14 +301,31 @@
             return group;
         }
 
-        // Render blocks using chunk system
+        // Render blocks using chunk system (legacy bulk render)
         function renderBlocks(blocks) {
             console.time('renderBlocks');
             
-            // Store globally for incremental updates
-            globalBlocks = blocks.slice();
+            // Clear existing data
+            loadedChunkData.clear();
             globalBlockMap.clear();
-            blocks.forEach(b => globalBlockMap.set(`${b.x},${b.y},${b.z}`, b.type));
+            
+            // Group blocks by 2D chunk
+            const chunkBlocks = new Map();
+            blocks.forEach(b => {
+                const chunkX = Math.floor(b.x / CHUNK_SIZE);
+                const chunkZ = Math.floor(b.z / CHUNK_SIZE);
+                const key = getChunkKey2D(chunkX, chunkZ);
+                if (!chunkBlocks.has(key)) {
+                    chunkBlocks.set(key, { chunkX, chunkZ, blocks: [] });
+                }
+                chunkBlocks.get(key).blocks.push(b);
+                globalBlockMap.set(`${b.x},${b.y},${b.z}`, b.type);
+            });
+            
+            // Store and render each chunk
+            chunkBlocks.forEach((chunkInfo, key) => {
+                loadedChunkData.set(key, chunkInfo);
+            });
             
             rebuildAllChunks();
             
@@ -307,7 +333,144 @@
             console.log(`Rendered ${blocks.length} blocks in ${chunkMeshes.size} chunks`);
         }
         
-        // Rebuild all chunk meshes from globalBlocks
+        // Add a single chunk of blocks (incremental loading)
+        function addChunk(chunkX, chunkZ, blocks) {
+            const key = getChunkKey2D(chunkX, chunkZ);
+            
+            // Store chunk data
+            loadedChunkData.set(key, { chunkX, chunkZ, blocks });
+            
+            // Add blocks to global map
+            blocks.forEach(b => {
+                globalBlockMap.set(`${b.x},${b.y},${b.z}`, b.type);
+            });
+            
+            // Build mesh for this chunk
+            buildAndAddChunkMesh(key, blocks);
+            
+            updateBlockCount();
+            
+            // Position camera on first chunk if not already positioned
+            if (!initialCameraPositioned && loadedChunkData.size >= 4) {
+                positionCameraToViewChunks();
+                initialCameraPositioned = true;
+            }
+        }
+        
+        // Remove chunks (unload)
+        function removeChunks(chunks) {
+            chunks.forEach(({ x, z }) => {
+                const key = getChunkKey2D(x, z);
+                
+                // Remove from data
+                const chunkInfo = loadedChunkData.get(key);
+                if (chunkInfo) {
+                    chunkInfo.blocks.forEach(b => {
+                        globalBlockMap.delete(`${b.x},${b.y},${b.z}`);
+                    });
+                    loadedChunkData.delete(key);
+                }
+                
+                // Find and remove 3D chunk meshes for this 2D chunk
+                const keysToRemove = [];
+                chunkMeshes.forEach((mesh, meshKey) => {
+                    const [cx, cy, cz] = meshKey.split(',').map(Number);
+                    if (cx === x && cz === z) {
+                        keysToRemove.push(meshKey);
+                    }
+                });
+                
+                keysToRemove.forEach(meshKey => {
+                    const mesh = chunkMeshes.get(meshKey);
+                    if (mesh) {
+                        chunkGroup.remove(mesh);
+                        mesh.traverse(obj => {
+                            if (obj.geometry) obj.geometry.dispose();
+                        });
+                        chunkMeshes.delete(meshKey);
+                    }
+                });
+            });
+            
+            updateBlockCount();
+        }
+        
+        // Update block count display
+        function updateBlockCount() {
+            let totalBlocks = 0;
+            loadedChunkData.forEach(chunk => totalBlocks += chunk.blocks.length);
+            document.getElementById('block-count').textContent = `${totalBlocks} (${loadedChunkData.size} chunks)`;
+        }
+        
+        // Position camera to view all loaded chunks
+        function positionCameraToViewChunks() {
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+            let minZ = Infinity, maxZ = -Infinity;
+            
+            loadedChunkData.forEach(chunk => {
+                chunk.blocks.forEach(b => {
+                    minX = Math.min(minX, b.x);
+                    maxX = Math.max(maxX, b.x);
+                    minY = Math.min(minY, b.y);
+                    maxY = Math.max(maxY, b.y);
+                    minZ = Math.min(minZ, b.z);
+                    maxZ = Math.max(maxZ, b.z);
+                });
+            });
+            
+            if (minX === Infinity) return;
+            
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+            const centerZ = (minZ + maxZ) / 2;
+            
+            camera.position.set(centerX, centerY + 50, centerZ - 80);
+            
+            const dx = centerX - camera.position.x;
+            const dz = centerZ - camera.position.z;
+            yaw = Math.atan2(dx, dz) + Math.PI;
+            pitch = 0;
+            
+            camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+            console.log(`Camera positioned at (${Math.floor(camera.position.x)}, ${Math.floor(camera.position.y)}, ${Math.floor(camera.position.z)})`);
+        }
+        
+        // Build and add mesh for a single chunk
+        function buildAndAddChunkMesh(key2D, blocks) {
+            // Group blocks by 3D chunk (Y sections)
+            const chunkBlocks3D = new Map();
+            blocks.forEach(block => {
+                const key3D = getChunkKey(block.x, block.y, block.z);
+                if (!chunkBlocks3D.has(key3D)) chunkBlocks3D.set(key3D, []);
+                chunkBlocks3D.get(key3D).push(block);
+            });
+            
+            // Build mesh for each 3D section
+            chunkBlocks3D.forEach((blockList, key3D) => {
+                // Remove old mesh if exists
+                if (chunkMeshes.has(key3D)) {
+                    const oldMesh = chunkMeshes.get(key3D);
+                    chunkGroup.remove(oldMesh);
+                    oldMesh.traverse(obj => {
+                        if (obj.geometry) obj.geometry.dispose();
+                    });
+                }
+                
+                const mesh = buildChunkMesh(blockList, globalBlockMap);
+                const [cx, cy, cz] = key3D.split(',').map(Number);
+                mesh.position.set(0, 0, 0);
+                mesh.userData.chunkCenter = new THREE.Vector3(
+                    (cx + 0.5) * CHUNK_SIZE,
+                    (cy + 0.5) * CHUNK_SIZE,
+                    (cz + 0.5) * CHUNK_SIZE
+                );
+                chunkMeshes.set(key3D, mesh);
+                chunkGroup.add(mesh);
+            });
+        }
+        
+        // Rebuild all chunk meshes from loadedChunkData
         function rebuildAllChunks() {
             // Clear old chunks
             chunkMeshes.forEach(mesh => {
@@ -318,32 +481,15 @@
             });
             chunkMeshes.clear();
             
-            // Group blocks into chunks
-            const chunkBlocks = new Map();
-            globalBlocks.forEach(block => {
-                const key = getChunkKey(block.x, block.y, block.z);
-                if (!chunkBlocks.has(key)) chunkBlocks.set(key, []);
-                chunkBlocks.get(key).push(block);
+            // Rebuild each 2D chunk's 3D sections
+            loadedChunkData.forEach((chunkInfo, key2D) => {
+                buildAndAddChunkMesh(key2D, chunkInfo.blocks);
             });
             
-            // Build mesh for each chunk
-            chunkBlocks.forEach((chunkBlockList, key) => {
-                const mesh = buildChunkMesh(chunkBlockList, globalBlockMap);
-                const [cx, cy, cz] = key.split(',').map(Number);
-                mesh.position.set(0, 0, 0);
-                mesh.userData.chunkCenter = new THREE.Vector3(
-                    (cx + 0.5) * CHUNK_SIZE,
-                    (cy + 0.5) * CHUNK_SIZE,
-                    (cz + 0.5) * CHUNK_SIZE
-                );
-                chunkMeshes.set(key, mesh);
-                chunkGroup.add(mesh);
-            });
-            
-            document.getElementById('block-count').textContent = `${globalBlocks.length} (${chunkMeshes.size} chunks)`;
+            updateBlockCount();
         }
         
-        // Rebuild only affected chunks (for incremental updates)
+        // Rebuild only affected 3D chunk section (for block changes)
         function rebuildChunk(chunkKey) {
             // Remove old chunk mesh if exists
             if (chunkMeshes.has(chunkKey)) {
@@ -355,13 +501,20 @@
                 chunkMeshes.delete(chunkKey);
             }
             
-            // Get blocks in this chunk
+            // Get blocks in this 3D chunk section
             const [cx, cy, cz] = chunkKey.split(',').map(Number);
-            const chunkBlockList = globalBlocks.filter(b => 
-                Math.floor(b.x / CHUNK_SIZE) === cx &&
-                Math.floor(b.y / CHUNK_SIZE) === cy &&
-                Math.floor(b.z / CHUNK_SIZE) === cz
-            );
+            const chunkBlockList = [];
+            
+            // Collect from all loaded 2D chunks that overlap this 3D section
+            loadedChunkData.forEach(chunkInfo => {
+                chunkInfo.blocks.forEach(b => {
+                    if (Math.floor(b.x / CHUNK_SIZE) === cx &&
+                        Math.floor(b.y / CHUNK_SIZE) === cy &&
+                        Math.floor(b.z / CHUNK_SIZE) === cz) {
+                        chunkBlockList.push(b);
+                    }
+                });
+            });
             
             if (chunkBlockList.length === 0) return;
             
@@ -382,6 +535,9 @@
             const { type, x, y, z, blockType } = data;
             const key = `${x},${y},${z}`;
             const chunkKey = getChunkKey(x, y, z);
+            const chunkX = Math.floor(x / CHUNK_SIZE);
+            const chunkZ = Math.floor(z / CHUNK_SIZE);
+            const key2D = getChunkKey2D(chunkX, chunkZ);
             
             // Get adjacent chunk keys that might need updating
             const adjacentChunks = new Set([chunkKey]);
@@ -394,15 +550,27 @@
             });
             
             if (type === 'block_break') {
-                // Remove block from global data
+                // Remove block from global map
                 globalBlockMap.delete(key);
-                globalBlocks = globalBlocks.filter(b => !(b.x === x && b.y === y && b.z === z));
+                
+                // Remove from chunk data
+                const chunkInfo = loadedChunkData.get(key2D);
+                if (chunkInfo) {
+                    chunkInfo.blocks = chunkInfo.blocks.filter(b => !(b.x === x && b.y === y && b.z === z));
+                }
                 console.log(`Block broken at (${x}, ${y}, ${z})`);
             } else if (type === 'block_place') {
-                // Add block to global data
+                // Add block to global map
                 if (!globalBlockMap.has(key)) {
-                    globalBlocks.push({ x, y, z, type: blockType });
                     globalBlockMap.set(key, blockType);
+                    
+                    // Add to chunk data
+                    let chunkInfo = loadedChunkData.get(key2D);
+                    if (!chunkInfo) {
+                        chunkInfo = { chunkX, chunkZ, blocks: [] };
+                        loadedChunkData.set(key2D, chunkInfo);
+                    }
+                    chunkInfo.blocks.push({ x, y, z, type: blockType });
                     console.log(`Block placed at (${x}, ${y}, ${z}): ${blockType}`);
                 }
             }
@@ -410,7 +578,7 @@
             // Rebuild affected chunks
             adjacentChunks.forEach(ck => rebuildChunk(ck));
             
-            document.getElementById('block-count').textContent = `${globalBlocks.length} (${chunkMeshes.size} chunks)`;
+            updateBlockCount();
         }
 
         // Frustum culling update (called each frame)
@@ -429,6 +597,8 @@
                 }
                 if (mesh.visible) visibleChunks++;
             });
+            
+            document.getElementById('rendered-chunks').textContent = `${visibleChunks}/${chunkMeshes.size}`;
         }
         
         // Create materials for each face of a body part from skin texture
@@ -686,44 +856,25 @@
             } else if (msg.type === 'block_change') {
                 // Real-time block update
                 handleBlockChange(msg.data);
+            } else if (msg.type === 'chunk') {
+                // Single chunk (incremental loading)
+                const { chunkX, chunkZ, blocks } = msg.data;
+                console.log(`Received chunk (${chunkX},${chunkZ}): ${blocks.length} blocks`);
+                addChunk(chunkX, chunkZ, blocks);
+            } else if (msg.type === 'chunk_unload') {
+                // Unload distant chunks
+                const { chunks } = msg.data;
+                console.log(`Unloading ${chunks.length} chunks`);
+                removeChunks(chunks);
             } else if (msg.type === 'chunks') {
-                console.log(`Received ${msg.data.blocks.length} blocks`);
+                // Legacy bulk chunks
+                console.log(`Received ${msg.data.blocks.length} blocks (bulk)`);
                 renderBlocks(msg.data.blocks);
                 
                 // Position camera to view the blocks
-                if (msg.data.blocks.length > 0) {
-                    // Calculate center of all blocks
-                    let minX = Infinity, maxX = -Infinity;
-                    let minY = Infinity, maxY = -Infinity;
-                    let minZ = Infinity, maxZ = -Infinity;
-                    
-                    msg.data.blocks.forEach(b => {
-                        minX = Math.min(minX, b.x);
-                        maxX = Math.max(maxX, b.x);
-                        minY = Math.min(minY, b.y);
-                        maxY = Math.max(maxY, b.y);
-                        minZ = Math.min(minZ, b.z);
-                        maxZ = Math.max(maxZ, b.z);
-                    });
-                    
-                    const centerX = (minX + maxX) / 2;
-                    const centerY = (minY + maxY) / 2;
-                    const centerZ = (minZ + maxZ) / 2;
-                    
-                    // Position camera above and back from center (in -Z direction so we look toward +Z)
-                    camera.position.set(centerX, centerY + 50, centerZ - 80);
-                    
-                    // Calculate direction FROM camera TO target
-                    const dx = centerX - camera.position.x;
-                    const dy = centerY - camera.position.y;
-                    const dz = centerZ - camera.position.z;
-                    yaw = Math.atan2(dx, dz) + Math.PI;
-                    pitch = 0; // Look horizontally
-                    
-                    // Apply the rotation immediately
-                    camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
-                    
-                    console.log(`Camera positioned at (${Math.floor(camera.position.x)}, ${Math.floor(camera.position.y)}, ${Math.floor(camera.position.z)}) looking at (${Math.floor(centerX)}, ${Math.floor(centerY)}, ${Math.floor(centerZ)})`);
+                if (msg.data.blocks.length > 0 && !initialCameraPositioned) {
+                    positionCameraToViewChunks();
+                    initialCameraPositioned = true;
                 }
             }
         };

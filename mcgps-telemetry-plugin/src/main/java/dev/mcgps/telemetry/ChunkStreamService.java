@@ -2,8 +2,10 @@ package dev.mcgps.telemetry;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.bukkit.Bukkit;
@@ -18,25 +20,28 @@ import org.bukkit.scheduler.BukkitTask;
 /**
  * ChunkStreamService - Streams chunk data around players
  * 
- * This service periodically sends chunk snapshots in the area around each player.
+ * This service incrementally sends chunk data as players move.
  * Only surface blocks are sent to minimize data transfer.
+ * Already-sent chunks are tracked to avoid resending.
  */
 public class ChunkStreamService {
     
-    private static final long CHUNK_UPDATE_INTERVAL_TICKS = 60L; // Every 3 seconds
-    private static final int CHUNK_RADIUS = 3; // 6x6 chunks (96x96 blocks)
+    private static final long CHUNK_UPDATE_INTERVAL_TICKS = 20L; // Every 1 second (check more frequently)
+    private static final int CHUNK_RADIUS = 8; // 16x16 chunks view distance (256x256 blocks)
+    private static final int UNLOAD_CHUNK_RADIUS = 12; // Unload chunks beyond this distance
     private static final int SAMPLE_INTERVAL = 1; // Sample every block for no gaps
     private static final int MAX_HEIGHT_SCAN = 320; // Scan from world height
     private static final int MIN_HEIGHT_SCAN = -64; // Down to world bottom
     private static final int HEIGHT_ABOVE_PLAYER = 50; // Scan this many blocks above player
+    private static final int CHUNKS_PER_TICK = 4; // Send up to 4 new chunks per update cycle
     
     private final JavaPlugin plugin;
-    private final Map<UUID, ChunkSnapshot> lastChunkSnapshots;
+    private final Map<UUID, PlayerChunkState> playerChunkStates;
     private BukkitTask chunkTask;
     
     public ChunkStreamService(JavaPlugin plugin) {
         this.plugin = plugin;
-        this.lastChunkSnapshots = new HashMap<>();
+        this.playerChunkStates = new HashMap<>();
     }
     
     /**
@@ -55,7 +60,7 @@ public class ChunkStreamService {
             chunkTask.cancel();
             chunkTask = null;
         }
-        lastChunkSnapshots.clear();
+        playerChunkStates.clear();
     }
     
     /**
@@ -66,66 +71,95 @@ public class ChunkStreamService {
             UUID uuid = player.getUniqueId();
             Location loc = player.getLocation();
             
-            // Check if player has moved significantly since last chunk update
-            ChunkSnapshot lastSnapshot = lastChunkSnapshots.get(uuid);
-            if (lastSnapshot != null && !lastSnapshot.hasMovedSignificantly(loc)) {
-                continue;
+            // Get or create player's chunk state
+            PlayerChunkState state = playerChunkStates.computeIfAbsent(uuid, k -> new PlayerChunkState());
+            
+            // Get the player's current chunk coordinates
+            int playerChunkX = loc.getBlockX() >> 4;
+            int playerChunkZ = loc.getBlockZ() >> 4;
+            
+            // Find chunks that need to be loaded
+            List<ChunkCoord> chunksToLoad = new ArrayList<>();
+            for (int dx = -CHUNK_RADIUS; dx <= CHUNK_RADIUS; dx++) {
+                for (int dz = -CHUNK_RADIUS; dz <= CHUNK_RADIUS; dz++) {
+                    ChunkCoord coord = new ChunkCoord(playerChunkX + dx, playerChunkZ + dz);
+                    if (!state.loadedChunks.contains(coord)) {
+                        // Calculate distance for priority loading (closer chunks first)
+                        coord.distanceSq = dx * dx + dz * dz;
+                        chunksToLoad.add(coord);
+                    }
+                }
             }
             
-            // Stream chunks around player
-            streamChunksAroundPlayer(player, loc);
-            lastChunkSnapshots.put(uuid, new ChunkSnapshot(loc));
+            // Sort by distance (load closer chunks first)
+            chunksToLoad.sort((a, b) -> Integer.compare(a.distanceSq, b.distanceSq));
+            
+            // Load up to CHUNKS_PER_TICK new chunks
+            int chunksLoaded = 0;
+            for (ChunkCoord coord : chunksToLoad) {
+                if (chunksLoaded >= CHUNKS_PER_TICK) break;
+                
+                // Stream this chunk
+                streamSingleChunk(player, loc.getWorld(), coord.x, coord.z, loc.getBlockY());
+                state.loadedChunks.add(coord);
+                chunksLoaded++;
+            }
+            
+            // Unload distant chunks
+            Set<ChunkCoord> chunksToUnload = new HashSet<>();
+            for (ChunkCoord coord : state.loadedChunks) {
+                int dx = coord.x - playerChunkX;
+                int dz = coord.z - playerChunkZ;
+                if (Math.abs(dx) > UNLOAD_CHUNK_RADIUS || Math.abs(dz) > UNLOAD_CHUNK_RADIUS) {
+                    chunksToUnload.add(coord);
+                }
+            }
+            
+            if (!chunksToUnload.isEmpty()) {
+                state.loadedChunks.removeAll(chunksToUnload);
+                // Notify client to unload these chunks
+                emitChunkUnload(player, chunksToUnload);
+            }
         }
         
         // Clean up disconnected players
-        lastChunkSnapshots.keySet().removeIf(uuid -> Bukkit.getPlayer(uuid) == null);
+        playerChunkStates.keySet().removeIf(uuid -> Bukkit.getPlayer(uuid) == null);
     }
     
     /**
-     * Stream chunks around a specific player
+     * Stream a single chunk worth of blocks
      */
-    private void streamChunksAroundPlayer(Player player, Location loc) {
-        World world = loc.getWorld();
+    private void streamSingleChunk(Player player, World world, int chunkX, int chunkZ, int playerY) {
         if (world == null) return;
         
-        int centerX = loc.getBlockX();
-        int centerZ = loc.getBlockZ();
-        int playerY = loc.getBlockY();
-        int radius = CHUNK_RADIUS * 16; // Convert chunks to blocks
+        int startX = chunkX * 16;
+        int startZ = chunkZ * 16;
+        int endX = startX + 15;
+        int endZ = startZ + 15;
         
-        // Start scanning from above the player (to catch tall structures/trees)
+        // Scan height based on player position
         int startY = Math.min(playerY + HEIGHT_ABOVE_PLAYER, world.getMaxHeight() - 1);
-        int endY = Math.max(playerY - 50, world.getMinHeight()); // Go 50 blocks below player
+        int endY = Math.max(playerY - 50, world.getMinHeight());
         
         List<BlockData> blocks = new ArrayList<>();
         
-        // Sample blocks in the area
-        int scannedPositions = 0;
-        int foundBlocks = 0;
-        
-        for (int x = centerX - radius; x <= centerX + radius; x += SAMPLE_INTERVAL) {
-            for (int z = centerZ - radius; z <= centerZ + radius; z += SAMPLE_INTERVAL) {
-                // Scan from top to bottom to capture everything (trees, structures, etc.)
-                scannedPositions++;
+        for (int x = startX; x <= endX; x += SAMPLE_INTERVAL) {
+            for (int z = startZ; z <= endZ; z += SAMPLE_INTERVAL) {
                 boolean foundGround = false;
                 
                 for (int y = startY; y >= endY && !foundGround; y--) {
                     Block block = world.getBlockAt(x, y, z);
                     Material type = block.getType();
                     
-                    // Include all solid blocks except vegetation (too small)
                     if (type != Material.AIR && type != Material.CAVE_AIR && type != Material.VOID_AIR) {
                         String blockType = getSimplifiedBlockType(type);
                         
-                        // Skip vegetation blocks (short grass, flowers, etc.)
                         if (blockType.equals("vegetation")) {
                             continue;
                         }
                         
                         blocks.add(new BlockData(x, y, z, blockType));
-                        foundBlocks++;
                         
-                        // Once we hit ground level blocks, go down a bit more for depth then stop
                         if (isGroundBlock(type)) {
                             foundGround = true;
                             // Add 2 more blocks below for depth
@@ -137,7 +171,6 @@ public class ChunkStreamService {
                                         String belowType = getSimplifiedBlockType(belowBlock.getType());
                                         if (!belowType.equals("vegetation")) {
                                             blocks.add(new BlockData(x, belowY, z, belowType));
-                                            foundBlocks++;
                                         }
                                     }
                                 }
@@ -148,23 +181,29 @@ public class ChunkStreamService {
             }
         }
         
-        // Debug: log scan results
-        if (blocks.isEmpty()) {
-            plugin.getLogger().warning("Chunk scan found 0 blocks! Scanned " + scannedPositions + 
-                " positions from Y=" + startY + " to Y=" + endY +
-                " around (" + centerX + ", " + centerZ + ") playerY=" + playerY);
-            
-            // Try to get a single block at player location for debugging
-            Block testBlock = world.getBlockAt(centerX, playerY, centerZ);
-            plugin.getLogger().warning("Block at player feet (" + centerX + "," + playerY + "," + centerZ + "): " + testBlock.getType().name());
-            Block testBlockBelow = world.getBlockAt(centerX, playerY - 1, centerZ);
-            plugin.getLogger().warning("Block below player (" + centerX + "," + (playerY-1) + "," + centerZ + "): " + testBlockBelow.getType().name());
-        } else {
-            plugin.getLogger().info("Chunk scan found " + foundBlocks + " blocks from " + scannedPositions + " positions");
+        if (!blocks.isEmpty()) {
+            emitChunkData(player, world, chunkX, chunkZ, blocks);
+        }
+    }
+    
+    /**
+     * Emit chunk unload message
+     */
+    private void emitChunkUnload(Player player, Set<ChunkCoord> chunks) {
+        StringBuilder json = new StringBuilder();
+        json.append("{\"type\":\"chunk_unload\",\"ts\":").append(System.currentTimeMillis());
+        json.append(",\"uuid\":\"").append(player.getUniqueId()).append("\"");
+        json.append(",\"chunks\":[");
+        
+        boolean first = true;
+        for (ChunkCoord coord : chunks) {
+            if (!first) json.append(",");
+            json.append("{\"x\":").append(coord.x).append(",\"z\":").append(coord.z).append("}");
+            first = false;
         }
         
-        // Emit chunk data as JSON
-        emitChunkData(player, world, centerX, centerZ, radius, blocks);
+        json.append("]}");
+        plugin.getLogger().info(json.toString());
     }
     
     /**
@@ -178,20 +217,20 @@ public class ChunkStreamService {
     }
     
     /**
-     * Emit chunk data as JSON to the console
+     * Emit chunk data as JSON to the console (single chunk format)
      */
-    private void emitChunkData(Player player, World world, int centerX, int centerZ, int radius, List<BlockData> blocks) {
+    private void emitChunkData(Player player, World world, int chunkX, int chunkZ, List<BlockData> blocks) {
         long timestamp = System.currentTimeMillis();
         UUID uuid = player.getUniqueId();
         String worldName = escapeJson(world.getName());
         
-        // Build JSON manually
+        // Build JSON for single chunk
         StringBuilder json = new StringBuilder();
-        json.append("{\"type\":\"chunks\",\"ts\":").append(timestamp);
+        json.append("{\"type\":\"chunk\",\"ts\":").append(timestamp);
         json.append(",\"uuid\":\"").append(uuid).append("\"");
         json.append(",\"world\":\"").append(worldName).append("\"");
-        json.append(",\"center\":{\"x\":").append(centerX).append(",\"z\":").append(centerZ).append("}");
-        json.append(",\"radius\":").append(radius);
+        json.append(",\"chunkX\":").append(chunkX);
+        json.append(",\"chunkZ\":").append(chunkZ);
         json.append(",\"blocks\":[");
         
         for (int i = 0; i < blocks.size(); i++) {
@@ -289,25 +328,35 @@ public class ChunkStreamService {
     }
     
     /**
-     * Snapshot of player's chunk position
+     * Chunk coordinate holder
      */
-    private static class ChunkSnapshot {
-        final int chunkX, chunkZ;
+    private static class ChunkCoord {
+        final int x, z;
+        int distanceSq; // For priority sorting
         
-        ChunkSnapshot(Location loc) {
-            this.chunkX = loc.getBlockX() >> 4;
-            this.chunkZ = loc.getBlockZ() >> 4;
+        ChunkCoord(int x, int z) {
+            this.x = x;
+            this.z = z;
         }
         
-        /**
-         * Check if player has moved to a different chunk area
-         */
-        boolean hasMovedSignificantly(Location newLoc) {
-            int newChunkX = newLoc.getBlockX() >> 4;
-            int newChunkZ = newLoc.getBlockZ() >> 4;
-            int deltaX = Math.abs(newChunkX - chunkX);
-            int deltaZ = Math.abs(newChunkZ - chunkZ);
-            return deltaX > 2 || deltaZ > 2; // Update if moved 2+ chunks
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            ChunkCoord that = (ChunkCoord) o;
+            return x == that.x && z == that.z;
         }
+        
+        @Override
+        public int hashCode() {
+            return 31 * x + z;
+        }
+    }
+    
+    /**
+     * Tracks which chunks have been sent to a player
+     */
+    private static class PlayerChunkState {
+        final Set<ChunkCoord> loadedChunks = new HashSet<>();
     }
 }
