@@ -668,23 +668,935 @@
             }
         });
 
-        // Simple color materials - ALL single materials for performance
-        // (Multi-material creates separate draw calls per block - very slow)
-        const materials = {
-            grass: new THREE.MeshLambertMaterial({ color: 0x5ca03b }),
-            dirt: new THREE.MeshLambertMaterial({ color: 0x8b6f47 }),
-            stone: new THREE.MeshLambertMaterial({ color: 0x7f7f7f }),
-            cobblestone: new THREE.MeshLambertMaterial({ color: 0x636363 }),
-            sand: new THREE.MeshLambertMaterial({ color: 0xdbd3a0 }),
-            gravel: new THREE.MeshLambertMaterial({ color: 0x7a7a7a }),
-            water: new THREE.MeshLambertMaterial({ color: 0x3f76e4, transparent: true, opacity: 0.7 }),
-            wood: new THREE.MeshLambertMaterial({ color: 0x6f5436 }),
-            leaves: new THREE.MeshLambertMaterial({ color: 0x3a8d2a }),
-            planks: new THREE.MeshLambertMaterial({ color: 0x9d804f }),
-            snow: new THREE.MeshLambertMaterial({ color: 0xfffafa })
+        // Texture loader and texture atlas system
+        const textureLoader = new THREE.TextureLoader();
+        
+        // Create canvas-based textures for Minecraft-style blocks
+        function createMinecraftTexture(colorData, size = 16) {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            
+            // Draw pixels from color data
+            const imageData = ctx.createImageData(size, size);
+            for (let i = 0; i < colorData.length; i++) {
+                imageData.data[i] = colorData[i];
+            }
+            ctx.putImageData(imageData, 0, 0);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+            texture.colorSpace = THREE.SRGBColorSpace;
+            return texture;
+        }
+        
+        // Generate procedural Minecraft-style textures
+        function generateBlockTextures() {
+            const textures = {};
+            
+            // Helper to create noise pattern
+            function addNoise(ctx, baseColor, intensity, size) {
+                const imageData = ctx.getImageData(0, 0, size, size);
+                const data = imageData.data;
+                for (let i = 0; i < data.length; i += 4) {
+                    const noise = (Math.random() - 0.5) * intensity;
+                    data[i] = Math.max(0, Math.min(255, data[i] + noise));
+                    data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise));
+                    data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise));
+                }
+                ctx.putImageData(imageData, 0, 0);
+            }
+            
+            // Helper to create a texture from a pattern function
+            function createTexture(patternFn, size = 16) {
+                const canvas = document.createElement('canvas');
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext('2d');
+                patternFn(ctx, size);
+                const texture = new THREE.CanvasTexture(canvas);
+                texture.magFilter = THREE.NearestFilter;
+                texture.minFilter = THREE.NearestFilter;
+                texture.wrapS = THREE.RepeatWrapping;
+                texture.wrapT = THREE.RepeatWrapping;
+                texture.colorSpace = THREE.SRGBColorSpace;
+                return texture;
+            }
+            
+            // Grass top texture
+            textures.grass_top = createTexture((ctx, size) => {
+                ctx.fillStyle = '#5D9B3E';
+                ctx.fillRect(0, 0, size, size);
+                // Add grass variation
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        if (Math.random() > 0.6) {
+                            const shade = Math.random() * 30 - 15;
+                            ctx.fillStyle = `rgb(${93 + shade}, ${155 + shade}, ${62 + shade})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // Grass side texture (dirt with grass on top)
+            textures.grass_side = createTexture((ctx, size) => {
+                // Dirt base
+                ctx.fillStyle = '#8B6F47';
+                ctx.fillRect(0, 0, size, size);
+                // Add dirt variation
+                for (let x = 0; x < size; x++) {
+                    for (let y = 3; y < size; y++) {
+                        if (Math.random() > 0.5) {
+                            const shade = Math.random() * 20 - 10;
+                            ctx.fillStyle = `rgb(${139 + shade}, ${111 + shade}, ${71 + shade})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        }
+                    }
+                }
+                // Grass top edge
+                for (let x = 0; x < size; x++) {
+                    const height = Math.floor(Math.random() * 3) + 1;
+                    for (let y = 0; y < height; y++) {
+                        const shade = Math.random() * 20 - 10;
+                        ctx.fillStyle = `rgb(${93 + shade}, ${155 + shade}, ${62 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // Dirt texture
+            textures.dirt = createTexture((ctx, size) => {
+                ctx.fillStyle = '#8B6F47';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        if (Math.random() > 0.4) {
+                            const shade = Math.random() * 30 - 15;
+                            ctx.fillStyle = `rgb(${139 + shade}, ${111 + shade}, ${71 + shade})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // Stone texture
+            textures.stone = createTexture((ctx, size) => {
+                ctx.fillStyle = '#808080';
+                ctx.fillRect(0, 0, size, size);
+                // Add stone variation with darker patches
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 40 - 20;
+                        if (Math.random() > 0.7) {
+                            ctx.fillStyle = `rgb(${128 + shade - 20}, ${128 + shade - 20}, ${128 + shade - 20})`;
+                        } else {
+                            ctx.fillStyle = `rgb(${128 + shade}, ${128 + shade}, ${128 + shade})`;
+                        }
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // Cobblestone texture
+            textures.cobblestone = createTexture((ctx, size) => {
+                ctx.fillStyle = '#6B6B6B';
+                ctx.fillRect(0, 0, size, size);
+                // Draw cobblestone pattern
+                const stoneColors = ['#7A7A7A', '#6B6B6B', '#5C5C5C', '#4D4D4D'];
+                for (let i = 0; i < 8; i++) {
+                    const x = Math.random() * (size - 4);
+                    const y = Math.random() * (size - 4);
+                    const w = 3 + Math.random() * 4;
+                    const h = 3 + Math.random() * 4;
+                    ctx.fillStyle = stoneColors[Math.floor(Math.random() * stoneColors.length)];
+                    ctx.fillRect(x, y, w, h);
+                }
+                addNoise(ctx, null, 15, size);
+            });
+            
+            // Sand texture
+            textures.sand = createTexture((ctx, size) => {
+                ctx.fillStyle = '#DBD3A0';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 25 - 12;
+                        ctx.fillStyle = `rgb(${219 + shade}, ${211 + shade}, ${160 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // Gravel texture
+            textures.gravel = createTexture((ctx, size) => {
+                ctx.fillStyle = '#7A7A7A';
+                ctx.fillRect(0, 0, size, size);
+                // Draw pebbles
+                const pebbleColors = ['#8A8A8A', '#6A6A6A', '#5A5A5A', '#9A9A9A'];
+                for (let i = 0; i < 12; i++) {
+                    const x = Math.random() * size;
+                    const y = Math.random() * size;
+                    ctx.fillStyle = pebbleColors[Math.floor(Math.random() * pebbleColors.length)];
+                    ctx.beginPath();
+                    ctx.arc(x, y, 1 + Math.random() * 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+            
+            // Water texture
+            textures.water = createTexture((ctx, size) => {
+                ctx.fillStyle = '#3F76E4';
+                ctx.fillRect(0, 0, size, size);
+                // Add wave-like variations
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const wave = Math.sin((x + y) * 0.5) * 15;
+                        const shade = wave + Math.random() * 20 - 10;
+                        ctx.fillStyle = `rgba(${63 + shade}, ${118 + shade}, ${228}, 0.8)`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // Oak log side texture
+            textures.wood_side = createTexture((ctx, size) => {
+                ctx.fillStyle = '#6F5436';
+                ctx.fillRect(0, 0, size, size);
+                // Draw bark lines
+                for (let x = 0; x < size; x++) {
+                    const lineWidth = 2 + Math.floor(Math.random() * 2);
+                    if (x % 4 < lineWidth) {
+                        for (let y = 0; y < size; y++) {
+                            const shade = Math.random() * 20 - 10;
+                            ctx.fillStyle = `rgb(${90 + shade}, ${70 + shade}, ${45 + shade})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        }
+                    }
+                }
+                addNoise(ctx, null, 10, size);
+            });
+            
+            // Oak log top texture
+            textures.wood_top = createTexture((ctx, size) => {
+                ctx.fillStyle = '#A08050';
+                ctx.fillRect(0, 0, size, size);
+                // Draw rings
+                const cx = size / 2, cy = size / 2;
+                for (let r = 1; r < size / 2; r += 2) {
+                    ctx.strokeStyle = r % 4 < 2 ? '#806040' : '#907050';
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            });
+            
+            // Leaves texture
+            textures.leaves = createTexture((ctx, size) => {
+                ctx.fillStyle = '#3A8D2A';
+                ctx.fillRect(0, 0, size, size);
+                // Add leaf variation with transparency gaps
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        if (Math.random() > 0.15) {
+                            const shade = Math.random() * 40 - 20;
+                            ctx.fillStyle = `rgb(${58 + shade}, ${141 + shade}, ${42 + shade})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        } else {
+                            ctx.clearRect(x, y, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // Oak planks texture
+            textures.planks = createTexture((ctx, size) => {
+                ctx.fillStyle = '#9D804F';
+                ctx.fillRect(0, 0, size, size);
+                // Draw plank lines
+                for (let y = 0; y < size; y += 4) {
+                    ctx.fillStyle = '#7D6030';
+                    ctx.fillRect(0, y, size, 1);
+                    // Horizontal wood grain
+                    for (let x = 0; x < size; x++) {
+                        for (let dy = 1; dy < 4 && y + dy < size; dy++) {
+                            const shade = Math.random() * 20 - 10;
+                            ctx.fillStyle = `rgb(${157 + shade}, ${128 + shade}, ${79 + shade})`;
+                            ctx.fillRect(x, y + dy, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // Snow texture
+            textures.snow = createTexture((ctx, size) => {
+                ctx.fillStyle = '#FFFAFA';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 10 - 5;
+                        ctx.fillStyle = `rgb(${250 + shade}, ${250 + shade}, ${255})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // Bedrock texture
+            textures.bedrock = createTexture((ctx, size) => {
+                ctx.fillStyle = '#333333';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 40 - 20;
+                        ctx.fillStyle = `rgb(${51 + shade}, ${51 + shade}, ${51 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // Deepslate texture
+            textures.deepslate = createTexture((ctx, size) => {
+                ctx.fillStyle = '#4A4A4A';
+                ctx.fillRect(0, 0, size, size);
+                // Add layered pattern
+                for (let y = 0; y < size; y++) {
+                    const lineShade = (y % 2 === 0) ? -10 : 10;
+                    for (let x = 0; x < size; x++) {
+                        const shade = lineShade + Math.random() * 15 - 7;
+                        ctx.fillStyle = `rgb(${74 + shade}, ${74 + shade}, ${74 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // Coal ore texture
+            textures.coal_ore = createTexture((ctx, size) => {
+                // Base stone
+                ctx.fillStyle = '#808080';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 30 - 15;
+                        ctx.fillStyle = `rgb(${128 + shade}, ${128 + shade}, ${128 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+                // Coal spots
+                for (let i = 0; i < 6; i++) {
+                    const x = 2 + Math.random() * (size - 4);
+                    const y = 2 + Math.random() * (size - 4);
+                    ctx.fillStyle = '#222222';
+                    ctx.fillRect(x, y, 2, 2);
+                }
+            });
+            
+            // Iron ore texture
+            textures.iron_ore = createTexture((ctx, size) => {
+                // Base stone
+                ctx.fillStyle = '#808080';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 30 - 15;
+                        ctx.fillStyle = `rgb(${128 + shade}, ${128 + shade}, ${128 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+                // Iron spots (beige/tan)
+                for (let i = 0; i < 5; i++) {
+                    const x = 2 + Math.random() * (size - 4);
+                    const y = 2 + Math.random() * (size - 4);
+                    ctx.fillStyle = '#D4A574';
+                    ctx.fillRect(x, y, 2, 2);
+                }
+            });
+            
+            // Gold ore texture
+            textures.gold_ore = createTexture((ctx, size) => {
+                // Base stone
+                ctx.fillStyle = '#808080';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 30 - 15;
+                        ctx.fillStyle = `rgb(${128 + shade}, ${128 + shade}, ${128 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+                // Gold spots
+                for (let i = 0; i < 4; i++) {
+                    const x = 2 + Math.random() * (size - 4);
+                    const y = 2 + Math.random() * (size - 4);
+                    ctx.fillStyle = '#FFD700';
+                    ctx.fillRect(x, y, 2, 2);
+                }
+            });
+            
+            // Diamond ore texture
+            textures.diamond_ore = createTexture((ctx, size) => {
+                // Base stone
+                ctx.fillStyle = '#808080';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 30 - 15;
+                        ctx.fillStyle = `rgb(${128 + shade}, ${128 + shade}, ${128 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+                // Diamond spots (cyan)
+                for (let i = 0; i < 4; i++) {
+                    const x = 2 + Math.random() * (size - 4);
+                    const y = 2 + Math.random() * (size - 4);
+                    ctx.fillStyle = '#4AEDD9';
+                    ctx.fillRect(x, y, 2, 2);
+                }
+            });
+            
+            // Redstone ore texture
+            textures.redstone_ore = createTexture((ctx, size) => {
+                // Base stone
+                ctx.fillStyle = '#808080';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 30 - 15;
+                        ctx.fillStyle = `rgb(${128 + shade}, ${128 + shade}, ${128 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+                // Redstone spots
+                for (let i = 0; i < 6; i++) {
+                    const x = 1 + Math.random() * (size - 3);
+                    const y = 1 + Math.random() * (size - 3);
+                    ctx.fillStyle = '#FF0000';
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            });
+            
+            // Lapis ore texture
+            textures.lapis_ore = createTexture((ctx, size) => {
+                // Base stone
+                ctx.fillStyle = '#808080';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 30 - 15;
+                        ctx.fillStyle = `rgb(${128 + shade}, ${128 + shade}, ${128 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+                // Lapis spots (blue)
+                for (let i = 0; i < 5; i++) {
+                    const x = 2 + Math.random() * (size - 4);
+                    const y = 2 + Math.random() * (size - 4);
+                    ctx.fillStyle = '#1E3A8A';
+                    ctx.fillRect(x, y, 2, 2);
+                }
+            });
+            
+            // Emerald ore texture
+            textures.emerald_ore = createTexture((ctx, size) => {
+                // Base stone
+                ctx.fillStyle = '#808080';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 30 - 15;
+                        ctx.fillStyle = `rgb(${128 + shade}, ${128 + shade}, ${128 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+                // Emerald spots (green)
+                for (let i = 0; i < 2; i++) {
+                    const x = 3 + Math.random() * (size - 6);
+                    const y = 3 + Math.random() * (size - 6);
+                    ctx.fillStyle = '#50C878';
+                    ctx.fillRect(x, y, 3, 3);
+                }
+            });
+            
+            // Copper ore texture
+            textures.copper_ore = createTexture((ctx, size) => {
+                // Base stone
+                ctx.fillStyle = '#808080';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 30 - 15;
+                        ctx.fillStyle = `rgb(${128 + shade}, ${128 + shade}, ${128 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+                // Copper spots (orange-brown)
+                for (let i = 0; i < 5; i++) {
+                    const x = 2 + Math.random() * (size - 4);
+                    const y = 2 + Math.random() * (size - 4);
+                    ctx.fillStyle = '#B87333';
+                    ctx.fillRect(x, y, 2, 2);
+                }
+            });
+            
+            // Netherrack texture
+            textures.netherrack = createTexture((ctx, size) => {
+                ctx.fillStyle = '#6B3333';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 30 - 15;
+                        ctx.fillStyle = `rgb(${107 + shade}, ${51 + shade * 0.5}, ${51 + shade * 0.5})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // Soul sand texture
+            textures.soul_sand = createTexture((ctx, size) => {
+                ctx.fillStyle = '#4D3B28';
+                ctx.fillRect(0, 0, size, size);
+                // Add face-like patterns
+                for (let i = 0; i < 3; i++) {
+                    const x = 2 + Math.random() * (size - 6);
+                    const y = 2 + Math.random() * (size - 6);
+                    ctx.fillStyle = '#2D1B08';
+                    ctx.fillRect(x, y, 1, 1);
+                    ctx.fillRect(x + 2, y, 1, 1);
+                    ctx.fillRect(x + 1, y + 2, 1, 1);
+                }
+                addNoise(ctx, null, 15, size);
+            });
+            
+            // Glowstone texture
+            textures.glowstone = createTexture((ctx, size) => {
+                ctx.fillStyle = '#FFE066';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 40 - 20;
+                        ctx.fillStyle = `rgb(${255}, ${224 + shade}, ${102 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // End stone texture
+            textures.end_stone = createTexture((ctx, size) => {
+                ctx.fillStyle = '#DBD9A6';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 20 - 10;
+                        ctx.fillStyle = `rgb(${219 + shade}, ${217 + shade}, ${166 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // Obsidian texture
+            textures.obsidian = createTexture((ctx, size) => {
+                ctx.fillStyle = '#1B0B3B';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 20 - 10;
+                        // Purple tint
+                        ctx.fillStyle = `rgb(${27 + shade}, ${11 + shade * 0.5}, ${59 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // Glass texture (mostly transparent with edges)
+            textures.glass = createTexture((ctx, size) => {
+                ctx.fillStyle = 'rgba(200, 220, 255, 0.3)';
+                ctx.fillRect(0, 0, size, size);
+                // Add edge highlights
+                ctx.strokeStyle = 'rgba(150, 180, 220, 0.6)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
+            });
+            
+            // Brick texture
+            textures.bricks = createTexture((ctx, size) => {
+                ctx.fillStyle = '#8B4513';
+                ctx.fillRect(0, 0, size, size);
+                // Draw brick pattern
+                ctx.fillStyle = '#696969';
+                for (let y = 0; y < size; y += 4) {
+                    ctx.fillRect(0, y, size, 1); // Horizontal mortar
+                }
+                const offset = [0, 8];
+                for (let y = 0; y < size; y += 4) {
+                    const off = offset[(y / 4) % 2];
+                    for (let x = off; x < size; x += 8) {
+                        ctx.fillRect(x, y, 1, 4); // Vertical mortar
+                    }
+                }
+                // Add brick color variation
+                const brickColor = ['#9B4513', '#8B4513', '#7B3503'];
+                for (let y = 0; y < size; y += 4) {
+                    const off = offset[(y / 4) % 2];
+                    for (let x = 0; x < size; x++) {
+                        if (y % 4 !== 0 && (x - off) % 8 !== 0) {
+                            ctx.fillStyle = brickColor[Math.floor(Math.random() * 3)];
+                            ctx.fillRect(x, y, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // TNT side texture
+            textures.tnt_side = createTexture((ctx, size) => {
+                ctx.fillStyle = '#FF0000';
+                ctx.fillRect(0, 0, size, size);
+                // TNT label
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 5, size, 6);
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(2, 6, 2, 4); // T
+                ctx.fillRect(4, 6, 1, 1);
+                ctx.fillRect(6, 6, 1, 4); // N
+                ctx.fillRect(7, 7, 1, 2);
+                ctx.fillRect(8, 6, 1, 4);
+                ctx.fillRect(10, 6, 2, 4); // T
+                ctx.fillRect(12, 6, 1, 1);
+            });
+            
+            // TNT top texture
+            textures.tnt_top = createTexture((ctx, size) => {
+                ctx.fillStyle = '#C0A060';
+                ctx.fillRect(0, 0, size, size);
+                // Fuse hole
+                ctx.fillStyle = '#404040';
+                ctx.beginPath();
+                ctx.arc(size/2, size/2, 3, 0, Math.PI * 2);
+                ctx.fill();
+                addNoise(ctx, null, 15, size);
+            });
+            
+            // Crafting table top
+            textures.crafting_top = createTexture((ctx, size) => {
+                ctx.fillStyle = '#8B6914';
+                ctx.fillRect(0, 0, size, size);
+                // Grid pattern
+                ctx.fillStyle = '#5B4904';
+                for (let i = 1; i < 3; i++) {
+                    ctx.fillRect(i * size / 3 - 1, 0, 2, size);
+                    ctx.fillRect(0, i * size / 3 - 1, size, 2);
+                }
+            });
+            
+            // Crafting table side
+            textures.crafting_side = createTexture((ctx, size) => {
+                // Base planks
+                ctx.fillStyle = '#9D804F';
+                ctx.fillRect(0, 0, size, size);
+                // Tools pattern
+                ctx.fillStyle = '#6B5020';
+                ctx.fillRect(2, 2, 4, 8);
+                ctx.fillRect(10, 4, 4, 6);
+                addNoise(ctx, null, 10, size);
+            });
+            
+            // Furnace front (off)
+            textures.furnace_front = createTexture((ctx, size) => {
+                // Base cobblestone-like
+                ctx.fillStyle = '#6B6B6B';
+                ctx.fillRect(0, 0, size, size);
+                addNoise(ctx, null, 20, size);
+                // Furnace opening
+                ctx.fillStyle = '#2B2B2B';
+                ctx.fillRect(4, 6, 8, 8);
+                ctx.fillStyle = '#1B1B1B';
+                ctx.fillRect(5, 7, 6, 6);
+            });
+            
+            // Furnace side
+            textures.furnace_side = createTexture((ctx, size) => {
+                ctx.fillStyle = '#6B6B6B';
+                ctx.fillRect(0, 0, size, size);
+                addNoise(ctx, null, 20, size);
+            });
+            
+            return textures;
+        }
+        
+        // Generate all textures
+        const blockTextures = generateBlockTextures();
+        console.log('✓ Generated procedural block textures:', Object.keys(blockTextures).length);
+        
+        // Block type to texture mapping (supports multi-face textures)
+        const blockTextureMap = {
+            // Natural terrain
+            grass: { top: 'grass_top', bottom: 'dirt', side: 'grass_side' },
+            grass_block: { top: 'grass_top', bottom: 'dirt', side: 'grass_side' },
+            short_grass: { all: 'grass_top' },
+            tall_grass: { all: 'grass_top' },
+            dirt: { all: 'dirt' },
+            coarse_dirt: { all: 'dirt' },
+            rooted_dirt: { all: 'dirt' },
+            podzol: { top: 'dirt', bottom: 'dirt', side: 'dirt' },
+            mycelium: { top: 'dirt', bottom: 'dirt', side: 'dirt' },
+            stone: { all: 'stone' },
+            cobblestone: { all: 'cobblestone' },
+            mossy_cobblestone: { all: 'cobblestone' },
+            sand: { all: 'sand' },
+            red_sand: { all: 'sand' },
+            sandstone: { all: 'sand' },
+            red_sandstone: { all: 'sand' },
+            gravel: { all: 'gravel' },
+            clay: { all: 'gravel' },
+            
+            // Water and ice
+            water: { all: 'water' },
+            ice: { all: 'glass' },
+            packed_ice: { all: 'glass' },
+            blue_ice: { all: 'glass' },
+            
+            // Wood types
+            wood: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
+            oak_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
+            spruce_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
+            birch_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
+            jungle_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
+            acacia_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
+            dark_oak_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
+            mangrove_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
+            cherry_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
+            crimson_stem: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
+            warped_stem: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
+            
+            // Stripped logs
+            stripped_oak_log: { top: 'wood_top', bottom: 'wood_top', side: 'planks' },
+            stripped_spruce_log: { top: 'wood_top', bottom: 'wood_top', side: 'planks' },
+            stripped_birch_log: { top: 'wood_top', bottom: 'wood_top', side: 'planks' },
+            stripped_jungle_log: { top: 'wood_top', bottom: 'wood_top', side: 'planks' },
+            stripped_acacia_log: { top: 'wood_top', bottom: 'wood_top', side: 'planks' },
+            stripped_dark_oak_log: { top: 'wood_top', bottom: 'wood_top', side: 'planks' },
+            
+            // Leaves
+            leaves: { all: 'leaves' },
+            oak_leaves: { all: 'leaves' },
+            spruce_leaves: { all: 'leaves' },
+            birch_leaves: { all: 'leaves' },
+            jungle_leaves: { all: 'leaves' },
+            acacia_leaves: { all: 'leaves' },
+            dark_oak_leaves: { all: 'leaves' },
+            mangrove_leaves: { all: 'leaves' },
+            cherry_leaves: { all: 'leaves' },
+            azalea_leaves: { all: 'leaves' },
+            flowering_azalea_leaves: { all: 'leaves' },
+            
+            // Planks
+            planks: { all: 'planks' },
+            oak_planks: { all: 'planks' },
+            spruce_planks: { all: 'planks' },
+            birch_planks: { all: 'planks' },
+            jungle_planks: { all: 'planks' },
+            acacia_planks: { all: 'planks' },
+            dark_oak_planks: { all: 'planks' },
+            mangrove_planks: { all: 'planks' },
+            cherry_planks: { all: 'planks' },
+            crimson_planks: { all: 'planks' },
+            warped_planks: { all: 'planks' },
+            bamboo_planks: { all: 'planks' },
+            
+            // Snow and cold biomes
+            snow: { all: 'snow' },
+            snow_block: { all: 'snow' },
+            powder_snow: { all: 'snow' },
+            
+            // Underground
+            bedrock: { all: 'bedrock' },
+            deepslate: { all: 'deepslate' },
+            cobbled_deepslate: { all: 'deepslate' },
+            polished_deepslate: { all: 'deepslate' },
+            deepslate_bricks: { all: 'deepslate' },
+            deepslate_tiles: { all: 'deepslate' },
+            
+            // Ores
+            coal_ore: { all: 'coal_ore' },
+            deepslate_coal_ore: { all: 'coal_ore' },
+            iron_ore: { all: 'iron_ore' },
+            deepslate_iron_ore: { all: 'iron_ore' },
+            gold_ore: { all: 'gold_ore' },
+            deepslate_gold_ore: { all: 'gold_ore' },
+            diamond_ore: { all: 'diamond_ore' },
+            deepslate_diamond_ore: { all: 'diamond_ore' },
+            redstone_ore: { all: 'redstone_ore' },
+            deepslate_redstone_ore: { all: 'redstone_ore' },
+            lapis_ore: { all: 'lapis_ore' },
+            deepslate_lapis_ore: { all: 'lapis_ore' },
+            emerald_ore: { all: 'emerald_ore' },
+            deepslate_emerald_ore: { all: 'emerald_ore' },
+            copper_ore: { all: 'copper_ore' },
+            deepslate_copper_ore: { all: 'copper_ore' },
+            nether_gold_ore: { all: 'gold_ore' },
+            nether_quartz_ore: { all: 'stone' },
+            ancient_debris: { all: 'obsidian' },
+            
+            // Nether blocks
+            netherrack: { all: 'netherrack' },
+            soul_sand: { all: 'soul_sand' },
+            soul_soil: { all: 'soul_sand' },
+            glowstone: { all: 'glowstone' },
+            magma_block: { all: 'netherrack' },
+            nether_bricks: { all: 'bricks' },
+            red_nether_bricks: { all: 'bricks' },
+            basalt: { all: 'deepslate' },
+            polished_basalt: { all: 'deepslate' },
+            smooth_basalt: { all: 'deepslate' },
+            blackstone: { all: 'deepslate' },
+            polished_blackstone: { all: 'deepslate' },
+            
+            // End blocks
+            end_stone: { all: 'end_stone' },
+            end_stone_bricks: { all: 'end_stone' },
+            purpur_block: { all: 'end_stone' },
+            purpur_pillar: { all: 'end_stone' },
+            
+            // Special blocks
+            obsidian: { all: 'obsidian' },
+            crying_obsidian: { all: 'obsidian' },
+            glass: { all: 'glass' },
+            glass_pane: { all: 'glass' },
+            tinted_glass: { all: 'glass' },
+            
+            // Building blocks
+            bricks: { all: 'bricks' },
+            brick: { all: 'bricks' },
+            stone_bricks: { all: 'cobblestone' },
+            mossy_stone_bricks: { all: 'cobblestone' },
+            cracked_stone_bricks: { all: 'cobblestone' },
+            chiseled_stone_bricks: { all: 'cobblestone' },
+            
+            // Functional blocks
+            tnt: { top: 'tnt_top', bottom: 'tnt_top', side: 'tnt_side' },
+            crafting_table: { top: 'crafting_top', bottom: 'planks', side: 'crafting_side' },
+            furnace: { top: 'furnace_side', bottom: 'furnace_side', front: 'furnace_front', side: 'furnace_side' },
+            blast_furnace: { top: 'furnace_side', bottom: 'furnace_side', front: 'furnace_front', side: 'furnace_side' },
+            smoker: { top: 'furnace_side', bottom: 'furnace_side', front: 'furnace_front', side: 'furnace_side' },
+            
+            // Metals and gems (solid blocks)
+            iron_block: { all: 'stone' },
+            gold_block: { all: 'glowstone' },
+            diamond_block: { all: 'glass' },
+            emerald_block: { all: 'leaves' },
+            lapis_block: { all: 'lapis_ore' },
+            redstone_block: { all: 'redstone_ore' },
+            copper_block: { all: 'copper_ore' },
+            netherite_block: { all: 'obsidian' },
+            
+            // Miscellaneous
+            andesite: { all: 'stone' },
+            diorite: { all: 'stone' },
+            granite: { all: 'stone' },
+            polished_andesite: { all: 'stone' },
+            polished_diorite: { all: 'stone' },
+            polished_granite: { all: 'stone' },
+            calcite: { all: 'snow' },
+            tuff: { all: 'gravel' },
+            dripstone_block: { all: 'gravel' },
+            prismarine: { all: 'water' },
+            dark_prismarine: { all: 'water' },
+            sea_lantern: { all: 'glowstone' },
+            
+            // Terracotta (maps to dirt-like)
+            terracotta: { all: 'dirt' },
+            white_terracotta: { all: 'dirt' },
+            orange_terracotta: { all: 'dirt' },
+            magenta_terracotta: { all: 'dirt' },
+            light_blue_terracotta: { all: 'dirt' },
+            yellow_terracotta: { all: 'dirt' },
+            lime_terracotta: { all: 'dirt' },
+            pink_terracotta: { all: 'dirt' },
+            gray_terracotta: { all: 'dirt' },
+            light_gray_terracotta: { all: 'dirt' },
+            cyan_terracotta: { all: 'dirt' },
+            purple_terracotta: { all: 'dirt' },
+            blue_terracotta: { all: 'dirt' },
+            brown_terracotta: { all: 'dirt' },
+            green_terracotta: { all: 'dirt' },
+            red_terracotta: { all: 'dirt' },
+            black_terracotta: { all: 'dirt' },
+            
+            // Concrete
+            white_concrete: { all: 'stone' },
+            orange_concrete: { all: 'stone' },
+            magenta_concrete: { all: 'stone' },
+            light_blue_concrete: { all: 'stone' },
+            yellow_concrete: { all: 'stone' },
+            lime_concrete: { all: 'stone' },
+            pink_concrete: { all: 'stone' },
+            gray_concrete: { all: 'stone' },
+            light_gray_concrete: { all: 'stone' },
+            cyan_concrete: { all: 'stone' },
+            purple_concrete: { all: 'stone' },
+            blue_concrete: { all: 'stone' },
+            brown_concrete: { all: 'stone' },
+            green_concrete: { all: 'stone' },
+            red_concrete: { all: 'stone' },
+            black_concrete: { all: 'stone' },
+            
+            // Wool
+            white_wool: { all: 'snow' },
+            orange_wool: { all: 'snow' },
+            magenta_wool: { all: 'snow' },
+            light_blue_wool: { all: 'snow' },
+            yellow_wool: { all: 'snow' },
+            lime_wool: { all: 'snow' },
+            pink_wool: { all: 'snow' },
+            gray_wool: { all: 'snow' },
+            light_gray_wool: { all: 'snow' },
+            cyan_wool: { all: 'snow' },
+            purple_wool: { all: 'snow' },
+            blue_wool: { all: 'snow' },
+            brown_wool: { all: 'snow' },
+            green_wool: { all: 'snow' },
+            red_wool: { all: 'snow' },
+            black_wool: { all: 'snow' },
+            
+            // Misc
+            pumpkin: { top: 'grass_top', bottom: 'grass_top', side: 'grass_side' },
+            melon: { top: 'leaves', bottom: 'leaves', side: 'leaves' },
+            hay_block: { top: 'sand', bottom: 'sand', side: 'sand' },
+            bone_block: { all: 'snow' },
+            sponge: { all: 'sand' },
+            wet_sponge: { all: 'sand' },
+            slime_block: { all: 'leaves' },
+            honey_block: { all: 'glowstone' },
+            honeycomb_block: { all: 'sand' },
+            
+            // Default air (shouldn't render, but just in case)
+            air: { all: 'glass' },
+            cave_air: { all: 'glass' },
+            void_air: { all: 'glass' }
         };
-
-        console.log('✓ Using optimized single-color materials');
+        
+        // Create materials from textures
+        const materials = {};
+        const textureMaterials = {}; // Store materials for each texture
+        
+        // Create a material for each texture
+        Object.entries(blockTextures).forEach(([name, texture]) => {
+            const isTransparent = name === 'water' || name === 'glass' || name === 'leaves';
+            textureMaterials[name] = new THREE.MeshLambertMaterial({
+                map: texture,
+                transparent: isTransparent,
+                opacity: name === 'water' ? 0.7 : (name === 'glass' ? 0.4 : 1.0),
+                side: name === 'leaves' || name === 'glass' ? THREE.DoubleSide : THREE.FrontSide,
+                alphaTest: name === 'leaves' ? 0.1 : 0
+            });
+        });
+        
+        // Create default fallback material
+        textureMaterials.default = new THREE.MeshLambertMaterial({ 
+            map: blockTextures.stone 
+        });
+        
+        console.log('✓ Created textured materials for blocks');
 
         // Chunk-based rendering system (like Minecraft)
         const CHUNK_SIZE = 16;
@@ -733,14 +1645,15 @@
         let needsRebuild = false;
         let initialCameraPositioned = false;
         
-        // Pre-computed face vertex data for speed
+        // Pre-computed face vertex data for speed with UV coordinates
+        // UVs are arranged: [u0,v0, u1,v1, u2,v2, u3,v3] for 4 vertices per face
         const FACE_DATA = {
-            px: { verts: [0.5,-0.5,-0.5, 0.5,0.5,-0.5, 0.5,0.5,0.5, 0.5,-0.5,0.5], norm: [1,0,0] },
-            nx: { verts: [-0.5,-0.5,0.5, -0.5,0.5,0.5, -0.5,0.5,-0.5, -0.5,-0.5,-0.5], norm: [-1,0,0] },
-            py: { verts: [-0.5,0.5,-0.5, -0.5,0.5,0.5, 0.5,0.5,0.5, 0.5,0.5,-0.5], norm: [0,1,0] },
-            ny: { verts: [-0.5,-0.5,-0.5, 0.5,-0.5,-0.5, 0.5,-0.5,0.5, -0.5,-0.5,0.5], norm: [0,-1,0] },
-            pz: { verts: [-0.5,-0.5,0.5, 0.5,-0.5,0.5, 0.5,0.5,0.5, -0.5,0.5,0.5], norm: [0,0,1] },
-            nz: { verts: [0.5,-0.5,-0.5, -0.5,-0.5,-0.5, -0.5,0.5,-0.5, 0.5,0.5,-0.5], norm: [0,0,-1] }
+            px: { verts: [0.5,-0.5,-0.5, 0.5,0.5,-0.5, 0.5,0.5,0.5, 0.5,-0.5,0.5], norm: [1,0,0], uvs: [1,1, 1,0, 0,0, 0,1], texType: 'side' },
+            nx: { verts: [-0.5,-0.5,0.5, -0.5,0.5,0.5, -0.5,0.5,-0.5, -0.5,-0.5,-0.5], norm: [-1,0,0], uvs: [1,1, 1,0, 0,0, 0,1], texType: 'side' },
+            py: { verts: [-0.5,0.5,-0.5, -0.5,0.5,0.5, 0.5,0.5,0.5, 0.5,0.5,-0.5], norm: [0,1,0], uvs: [0,0, 0,1, 1,1, 1,0], texType: 'top' },
+            ny: { verts: [-0.5,-0.5,-0.5, 0.5,-0.5,-0.5, 0.5,-0.5,0.5, -0.5,-0.5,0.5], norm: [0,-1,0], uvs: [0,1, 1,1, 1,0, 0,0], texType: 'bottom' },
+            pz: { verts: [-0.5,-0.5,0.5, 0.5,-0.5,0.5, 0.5,0.5,0.5, -0.5,0.5,0.5], norm: [0,0,1], uvs: [0,1, 1,1, 1,0, 0,0], texType: 'side' },
+            nz: { verts: [0.5,-0.5,-0.5, -0.5,-0.5,-0.5, -0.5,0.5,-0.5, 0.5,0.5,-0.5], norm: [0,0,-1], uvs: [0,1, 1,1, 1,0, 0,0], texType: 'side' }
         };
         
         // Frustum for culling
@@ -759,46 +1672,74 @@
         function getChunkKey2D(chunkX, chunkZ) {
             return `${chunkX},${chunkZ}`;
         }
+        
+        // Helper to get the texture name for a block type and face
+        function getTextureForFace(blockType, faceType) {
+            const mapping = blockTextureMap[blockType];
+            if (!mapping) {
+                // Default to stone texture for unknown blocks
+                return 'stone';
+            }
+            if (mapping.all) {
+                return mapping.all;
+            }
+            // Check for specific face texture
+            if (faceType === 'top' && mapping.top) return mapping.top;
+            if (faceType === 'bottom' && mapping.bottom) return mapping.bottom;
+            if (faceType === 'side' && mapping.side) return mapping.side;
+            if (faceType === 'front' && mapping.front) return mapping.front;
+            // Fallback to side or first available
+            return mapping.side || mapping.top || Object.values(mapping)[0];
+        }
 
-        // Build optimized geometry for a chunk
+        // Build optimized geometry for a chunk with textures
         function buildChunkMesh(blocks, blockMap) {
-            // Group blocks by type for batching
-            const byType = {};
+            // Group blocks by texture (not just type) for batching
+            // This allows different faces of same block type to use different textures
+            const byTexture = {};
             
             // Transparent block types that need special handling
-            const transparentTypes = new Set(['water', 'leaves']);
+            const transparentTypes = new Set(['water', 'leaves', 'oak_leaves', 'spruce_leaves', 'birch_leaves', 
+                'jungle_leaves', 'acacia_leaves', 'dark_oak_leaves', 'glass']);
             
             blocks.forEach(({ x, y, z, type = 'stone' }) => {
                 const isTransparent = transparentTypes.has(type);
                 const isWater = type === 'water';
-                
-                // Determine visible faces (occlusion culling)
-                const faces = [];
                 
                 // For each direction, check if we should render the face
                 const checkFace = (dx, dy, dz, faceKey) => {
                     const adjacentKey = `${x+dx},${y+dy},${z+dz}`;
                     const adjacentType = blockMap.get(adjacentKey);
                     
+                    let shouldRender = false;
+                    
                     if (isWater) {
                         // Water: only render faces adjacent to non-water (air or solid blocks)
-                        // This creates the water surface effect
                         if (!adjacentType || (adjacentType !== 'water')) {
-                            faces.push(faceKey);
+                            shouldRender = true;
                         }
                     } else if (!adjacentType) {
                         // No block there, render face
-                        faces.push(faceKey);
+                        shouldRender = true;
                     } else if (adjacentType === 'water') {
                         // Solid block next to water - always render this face
-                        faces.push(faceKey);
+                        shouldRender = true;
                     } else if (isTransparent) {
-                        // For other transparent blocks (leaves), only cull if adjacent is same type
+                        // For transparent blocks, only cull if adjacent is same type
                         if (adjacentType !== type) {
-                            faces.push(faceKey);
+                            shouldRender = true;
                         }
                     }
-                    // For solid blocks next to other solid blocks, face is culled
+                    
+                    if (shouldRender) {
+                        const faceData = FACE_DATA[faceKey];
+                        const textureName = getTextureForFace(type, faceData.texType);
+                        
+                        if (!byTexture[textureName]) {
+                            byTexture[textureName] = { blocks: [], isWater: isWater, isTransparent: isTransparent, blockType: type };
+                        }
+                        byTexture[textureName].blocks.push({ x, y, z, faceKey, type });
+                    }
                 };
                 
                 checkFace(1, 0, 0, 'px');
@@ -807,53 +1748,58 @@
                 checkFace(0, -1, 0, 'ny');
                 checkFace(0, 0, 1, 'pz');
                 checkFace(0, 0, -1, 'nz');
-                
-                if (faces.length === 0) return; // Fully occluded
-                
-                if (!byType[type]) byType[type] = [];
-                byType[type].push({ x, y, z, faces });
             });
             
             const group = new THREE.Group();
             
-            // Build merged geometry per material type
-            Object.keys(byType).forEach(type => {
-                const data = byType[type];
-                const mat = materials[type] || materials.stone;
-                const isWater = type === 'water';
+            // Build merged geometry per texture
+            Object.entries(byTexture).forEach(([textureName, data]) => {
+                const { blocks: faceBlocks, isWater, isTransparent } = data;
+                
+                // Get material for this texture
+                let mat = textureMaterials[textureName];
+                if (!mat) {
+                    mat = textureMaterials.default;
+                }
                 
                 // Water inset to prevent z-fighting with adjacent solid blocks
                 const inset = isWater ? 0.01 : 0;
                 
-                // Merge all blocks of this type into one geometry
+                // Merge all faces of this texture into one geometry
                 const positions = [];
                 const normals = [];
+                const uvs = [];
                 const indices = [];
                 let vertexOffset = 0;
                 
-                data.forEach(({ x, y, z, faces }) => {
-                    faces.forEach(faceKey => {
-                        const face = FACE_DATA[faceKey];
-                        // Add translated vertices with optional inset for water
-                        for (let i = 0; i < 12; i += 3) {
-                            // Apply inset in the direction of the face normal
-                            positions.push(
-                                face.verts[i] + x - face.norm[0] * inset,
-                                face.verts[i + 1] + y - face.norm[1] * inset,
-                                face.verts[i + 2] + z - face.norm[2] * inset
-                            );
-                        }
-                        // Add normals (4 vertices per face)
-                        for (let i = 0; i < 4; i++) {
-                            normals.push(face.norm[0], face.norm[1], face.norm[2]);
-                        }
-                        // Add indices (2 triangles per face)
-                        indices.push(
-                            vertexOffset, vertexOffset + 1, vertexOffset + 2,
-                            vertexOffset, vertexOffset + 2, vertexOffset + 3
+                faceBlocks.forEach(({ x, y, z, faceKey }) => {
+                    const face = FACE_DATA[faceKey];
+                    
+                    // Add translated vertices with optional inset for water
+                    for (let i = 0; i < 12; i += 3) {
+                        positions.push(
+                            face.verts[i] + x - face.norm[0] * inset,
+                            face.verts[i + 1] + y - face.norm[1] * inset,
+                            face.verts[i + 2] + z - face.norm[2] * inset
                         );
-                        vertexOffset += 4;
-                    });
+                    }
+                    
+                    // Add normals (4 vertices per face)
+                    for (let i = 0; i < 4; i++) {
+                        normals.push(face.norm[0], face.norm[1], face.norm[2]);
+                    }
+                    
+                    // Add UV coordinates (4 vertices per face, 2 components each)
+                    for (let i = 0; i < 8; i++) {
+                        uvs.push(face.uvs[i]);
+                    }
+                    
+                    // Add indices (2 triangles per face)
+                    indices.push(
+                        vertexOffset, vertexOffset + 1, vertexOffset + 2,
+                        vertexOffset, vertexOffset + 2, vertexOffset + 3
+                    );
+                    vertexOffset += 4;
                 });
                 
                 if (positions.length === 0) return;
@@ -861,6 +1807,7 @@
                 const geometry = new THREE.BufferGeometry();
                 geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
                 geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+                geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
                 geometry.setIndex(indices);
                 geometry.computeBoundingSphere();
                 
