@@ -46,10 +46,201 @@
         .inv-slot.held { border-color: #00ff88; box-shadow: 0 0 4px #00ff88; }
         .inv-slot .amount { position: absolute; bottom: 1px; right: 2px; font-size: 8px; color: #fff; text-shadow: 1px 1px 1px #000; }
         .armor-grid { display: grid; grid-template-columns: repeat(4, 28px); gap: 2px; }
+        .armor-offhand-row { display: flex; align-items: center; gap: 10px; }
+        .offhand-slot { display: flex; align-items: center; justify-content: center; }
+        
+        /* Camera mode buttons */
+        #camera-modes {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 8px;
+            background: rgba(0,0,0,0.8);
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 2px solid #00ff88;
+            z-index: 100;
+        }
+        /* First person crosshair */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            pointer-events: none;
+            z-index: 50;
+            display: none;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: white;
+            box-shadow: 0 0 2px rgba(0,0,0,0.8);
+        }
+        #crosshair::before {
+            width: 2px;
+            height: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        #crosshair::after {
+            width: 100%;
+            height: 2px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .camera-btn {
+            width: 40px;
+            height: 40px;
+            border: 2px solid #555;
+            border-radius: 6px;
+            background: #222;
+            color: #aaa;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .camera-btn:hover {
+            border-color: #00ff88;
+            color: #fff;
+        }
+        .camera-btn.active {
+            border-color: #00ff88;
+            background: #00ff88;
+            color: #000;
+        }
+        .camera-btn svg {
+            width: 20px;
+            height: 20px;
+        }
+        
+        /* Player select modal */
+        #player-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        #player-modal.show {
+            display: flex;
+        }
+        .modal-content {
+            background: #222;
+            border: 2px solid #00ff88;
+            border-radius: 12px;
+            padding: 20px;
+            min-width: 300px;
+            max-height: 400px;
+        }
+        .modal-content h3 {
+            color: #00ff88;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        .player-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .player-item {
+            padding: 10px 15px;
+            background: #333;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s;
+        }
+        .player-item:hover {
+            background: #444;
+            border-left: 3px solid #00ff88;
+        }
+        .player-item.selected {
+            background: #00ff88;
+            color: #000;
+        }
+        .modal-close {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 24px;
+            cursor: pointer;
+            color: #888;
+        }
+        .modal-close:hover {
+            color: #fff;
+        }
+        .no-players {
+            color: #888;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        /* First person button in inventory */
+        .first-person-btn {
+            margin-top: 10px;
+            padding: 8px 16px;
+            background: #333;
+            border: 2px solid #00ff88;
+            border-radius: 6px;
+            color: #00ff88;
+            cursor: pointer;
+            width: 100%;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .first-person-btn:hover {
+            background: #00ff88;
+            color: #000;
+        }
     </style>
 </head>
 <body>
     <div id="canvas-container"></div>
+    
+    <!-- First person crosshair -->
+    <div id="crosshair"></div>
+    
+    <!-- Camera mode buttons -->
+    <div id="camera-modes">
+        <button class="camera-btn" id="btn-2d" title="2D Top-Down View">2D</button>
+        <button class="camera-btn active" id="btn-freecam" title="Free Camera">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+        </button>
+        <button class="camera-btn" id="btn-firstperson" title="First Person View">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+        </button>
+        <button class="camera-btn" id="btn-thirdperson" title="Third Person View (GTA-style)">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+        </button>
+    </div>
+    
+    <!-- Player selection modal -->
+    <div id="player-modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closePlayerModal()">&times;</span>
+            <h3 id="modal-title">👁️ Select Player to Follow</h3>
+            <div class="player-list" id="player-list"></div>
+        </div>
+    </div>
+    
     <div id="ui">
         <h1>McGPS Viewer</h1>
         <div id="status"><span class="dot disconnected" id="dot"></span><span id="status-text">Connecting...</span></div>
@@ -71,21 +262,23 @@
             <div class="stat">✨ Level <span id="player-level" style="margin-left:8px;color:#88ff88">0</span></div>
         </div>
         <div class="inv-section">
-            <div class="inv-section-title">Hotbar</div>
-            <div class="inv-grid" id="inv-hotbar"></div>
-        </div>
-        <div class="inv-section">
-            <div class="inv-section-title">Armor</div>
-            <div class="armor-grid" id="inv-armor"></div>
-        </div>
-        <div class="inv-section">
-            <div class="inv-section-title">Offhand</div>
-            <div id="inv-offhand"></div>
+            <div class="inv-section-title">Armor & Offhand</div>
+            <div class="armor-offhand-row">
+                <div class="armor-grid" id="inv-armor"></div>
+                <div class="offhand-slot" id="inv-offhand"></div>
+            </div>
         </div>
         <div class="inv-section">
             <div class="inv-section-title">Inventory</div>
             <div class="inv-grid" id="inv-main"></div>
         </div>
+        <div class="inv-section">
+            <div class="inv-section-title">Hotbar</div>
+            <div class="inv-grid" id="inv-hotbar"></div>
+        </div>
+        <button class="first-person-btn" id="inv-firstperson-btn" onclick="followSelectedPlayer()">
+            First Person View
+        </button>
     </div>
 
     <script type="importmap">
@@ -131,6 +324,12 @@
         const mouse = new THREE.Vector2();
         let selectedPlayerUuid = null;
         const playerData = new Map(); // Store latest player data including inventory
+        
+        // Camera mode: 'freecam' (default), '2d', 'firstperson', 'thirdperson'
+        let cameraMode = 'freecam';
+        let followTarget = null; // UUID of player being followed
+        let pendingCameraMode = null; // Mode waiting for player selection
+        let saved2DState = null; // Save freecam state when switching to 2D
         
         // Highlight material for selected player
         const highlightMaterial = new THREE.LineBasicMaterial({ color: 0x00ff88, linewidth: 2 });
@@ -180,7 +379,7 @@
         });
         
         renderer.domElement.addEventListener('mousemove', e => {
-            if (isDragging) {
+            if (isDragging && cameraMode === 'freecam') {
                 const deltaX = e.clientX - lastX;
                 const deltaY = e.clientY - lastY;
                 
@@ -190,6 +389,16 @@
                 yaw -= deltaX * 0.003;
                 pitch -= deltaY * 0.003;
                 pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+            } else if (isDragging && cameraMode === '2d') {
+                // Pan in 2D mode
+                const deltaX = e.clientX - lastX;
+                const deltaY = e.clientY - lastY;
+                
+                lastX = e.clientX;
+                lastY = e.clientY;
+                
+                camera.position.x -= deltaX * 0.5;
+                camera.position.z -= deltaY * 0.5;
             }
         });
 
@@ -212,6 +421,95 @@
         });
 
         function updateCamera() {
+            // Handle different camera modes
+            if (cameraMode === 'firstperson' && followTarget) {
+                // First person: camera inside player's head, looking through their eyes
+                const targetData = playerData.get(followTarget);
+                const targetPlayer = players.get(followTarget);
+                
+                // Hide the player model we're viewing from
+                if (targetPlayer) {
+                    targetPlayer.group.visible = false;
+                }
+                
+                if (targetData) {
+                    // Calculate the direction the player is looking
+                    // Minecraft yaw: 0=south(+Z), 90=west(-X), 180=north(-Z), 270=east(+X)
+                    // Three.js camera faces -Z by default, add PI to flip to face correct direction
+                    const playerYaw = (-targetData.yaw * Math.PI / 180) + Math.PI;
+                    const playerPitch = -targetData.pitch * Math.PI / 180;
+                    
+                    // Position camera at player's eye level (offset by -0.5 to match block alignment)
+                    camera.position.set(targetData.x - 0.5, targetData.y + 1.0, targetData.z - 0.5);
+                    
+                    // Match player's view direction exactly
+                    camera.quaternion.setFromEuler(new THREE.Euler(playerPitch, playerYaw, 0, 'YXZ'));
+                }
+                
+                // Show crosshair in first person
+                document.getElementById('crosshair').style.display = 'block';
+                
+                document.getElementById('camera-pos').textContent = 
+                    `tFirst Person: ${targetData?.name || 'Unknown'}`;
+                return;
+            } else {
+                // Make sure all players are visible when not in first person
+                players.forEach((player, uuid) => {
+                    player.group.visible = true;
+                });
+                // Hide crosshair when not in first person
+                document.getElementById('crosshair').style.display = 'none';
+            }
+            
+            if (cameraMode === 'thirdperson' && followTarget) {
+                // Third person (GTA-style): camera behind and above the player
+                const targetData = playerData.get(followTarget);
+                if (targetData) {
+                    const playerYaw = (-targetData.yaw * Math.PI / 180) + Math.PI;
+                    
+                    // Position camera behind and above the player
+                    const distance = 5; // Distance behind player
+                    const height = 3;   // Height above player
+                    
+                    const offsetX = Math.sin(playerYaw) * distance;
+                    const offsetZ = Math.cos(playerYaw) * distance;
+                    
+                    camera.position.set(
+                        targetData.x + offsetX,
+                        targetData.y + height,
+                        targetData.z + offsetZ
+                    );
+                    
+                    // Look at the player's head
+                    camera.lookAt(targetData.x, targetData.y + 1.6, targetData.z);
+                }
+                document.getElementById('camera-pos').textContent = 
+                    `🎮 Third Person: ${targetData?.name || 'Unknown'}`;
+                return;
+            }
+            
+            if (cameraMode === '2d') {
+                // 2D mode: only horizontal movement, looking straight down
+                const moveSpeed = 1.0;
+                
+                // In 2D mode, WASD moves in world XZ plane
+                if (keys.w) camera.position.z -= moveSpeed;
+                if (keys.s) camera.position.z += moveSpeed;
+                if (keys.d) camera.position.x += moveSpeed;
+                if (keys.a) camera.position.x -= moveSpeed;
+                // Space/Shift zoom in/out
+                if (keys.space) camera.position.y += moveSpeed;
+                if (keys.shift) camera.position.y = Math.max(50, camera.position.y - moveSpeed);
+                
+                // Camera always looks straight down
+                camera.quaternion.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0, 'YXZ'));
+                
+                document.getElementById('camera-pos').textContent = 
+                    `2D: ${Math.floor(camera.position.x)}, ${Math.floor(camera.position.y)}, ${Math.floor(camera.position.z)}`;
+                return;
+            }
+            
+            // Free cam mode (default)
             // Calculate forward direction from yaw (ignoring pitch for movement)
             const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
             const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -232,6 +530,131 @@
             document.getElementById('camera-pos').textContent = 
                 `${Math.floor(camera.position.x)}, ${Math.floor(camera.position.y)}, ${Math.floor(camera.position.z)}`;
         }
+        
+        // Camera mode switching functions
+        function setCameraMode(mode) {
+            const oldMode = cameraMode;
+            cameraMode = mode;
+            
+            // Update button states
+            document.getElementById('btn-2d').classList.toggle('active', mode === '2d');
+            document.getElementById('btn-freecam').classList.toggle('active', mode === 'freecam');
+            document.getElementById('btn-firstperson').classList.toggle('active', mode === 'firstperson');
+            document.getElementById('btn-thirdperson').classList.toggle('active', mode === 'thirdperson');
+            
+            if (mode === '2d') {
+                // Switch to 2D mode - position camera high above looking down
+                camera.position.y = 200;
+                camera.quaternion.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0, 'YXZ'));
+                followTarget = null;
+            } else if (mode === 'freecam') {
+                // Back to free cam
+                followTarget = null;
+                pendingCameraMode = null;
+                // Restore normal view angle
+                pitch = 0;
+                camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+            } else if (mode === 'firstperson') {
+                // First person mode - need to select a player
+                if (!followTarget) {
+                    pendingCameraMode = 'firstperson';
+                    document.getElementById('modal-title').textContent = '👁️ Select Player for First Person View';
+                    openPlayerModal();
+                }
+            } else if (mode === 'thirdperson') {
+                // Third person mode - need to select a player
+                if (!followTarget) {
+                    pendingCameraMode = 'thirdperson';
+                    document.getElementById('modal-title').textContent = '🎮 Select Player for Third Person View';
+                    openPlayerModal();
+                }
+            }
+            
+            console.log(`Camera mode: ${mode}`);
+        }
+        
+        function openPlayerModal() {
+            const modal = document.getElementById('player-modal');
+            const list = document.getElementById('player-list');
+            
+            // Build player list
+            list.innerHTML = '';
+            
+            if (playerData.size === 0) {
+                list.innerHTML = '<div class="no-players">No players online</div>';
+            } else {
+                playerData.forEach((data, uuid) => {
+                    const item = document.createElement('div');
+                    item.className = 'player-item';
+                    if (uuid === followTarget) item.classList.add('selected');
+                    item.innerHTML = `<span>👤</span><span>${data.name}</span>`;
+                    item.onclick = () => selectFollowTarget(uuid);
+                    list.appendChild(item);
+                });
+            }
+            
+            modal.classList.add('show');
+        }
+        
+        window.closePlayerModal = function() {
+            document.getElementById('player-modal').classList.remove('show');
+            // If no target selected, go back to freecam
+            if (!followTarget) {
+                pendingCameraMode = null;
+                setCameraMode('freecam');
+            }
+        };
+        
+        function selectFollowTarget(uuid) {
+            followTarget = uuid;
+            document.getElementById('player-modal').classList.remove('show');
+            // Apply the pending camera mode
+            const mode = pendingCameraMode || 'firstperson';
+            pendingCameraMode = null;
+            setCameraMode(mode);
+            console.log(`Following player in ${mode}: ${playerData.get(uuid)?.name}`);
+        }
+        
+        window.followSelectedPlayer = function() {
+            if (selectedPlayerUuid) {
+                followTarget = selectedPlayerUuid;
+                setCameraMode('firstperson');
+            }
+        };
+        
+        // Setup camera mode button handlers - clicking active button deactivates it (returns to freecam)
+        document.getElementById('btn-2d').addEventListener('click', () => {
+            if (cameraMode === '2d') {
+                setCameraMode('freecam');
+            } else {
+                setCameraMode('2d');
+            }
+        });
+        document.getElementById('btn-freecam').addEventListener('click', () => setCameraMode('freecam'));
+        document.getElementById('btn-firstperson').addEventListener('click', () => {
+            if (cameraMode === 'firstperson') {
+                setCameraMode('freecam');
+            } else {
+                setCameraMode('firstperson');
+            }
+        });
+        document.getElementById('btn-thirdperson').addEventListener('click', () => {
+            if (cameraMode === 'thirdperson') {
+                setCameraMode('freecam');
+            } else {
+                setCameraMode('thirdperson');
+            }
+        });
+        
+        // ESC key to exit first person / 2D modes
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (cameraMode !== 'freecam') {
+                    setCameraMode('freecam');
+                }
+                closePlayerModal();
+            }
+        });
 
         // Simple color materials - ALL single materials for performance
         // (Multi-material creates separate draw calls per block - very slow)
