@@ -47,16 +47,15 @@
         scene.fog = new THREE.Fog(0x87ceeb, 100, 300);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 100, 100);
+        camera.position.set(0, 100, -100);
         
-        // Calculate initial yaw and pitch from lookAt direction
+        // Calculate initial yaw and pitch to look at origin
         const initialTarget = new THREE.Vector3(0, 70, 0);
         const dx = initialTarget.x - camera.position.x;
         const dy = initialTarget.y - camera.position.y;
         const dz = initialTarget.z - camera.position.z;
-        let yaw = Math.atan2(dx, dz);
-        const distance = Math.sqrt(dx * dx + dz * dz);
-        let pitch = -Math.atan2(dy, distance);
+        let yaw = Math.atan2(dx, dz) + Math.PI;
+        let pitch = 0; // Look horizontally
         
         // Apply initial rotation
         camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
@@ -431,59 +430,232 @@
                 if (mesh.visible) visibleChunks++;
             });
         }
+        
+        // Create materials for each face of a body part from skin texture
+        function createSkinMaterials(texture, uvMap) {
+            // uvMap: { right, left, top, bottom, front, back } each with {x, y, w, h} in pixels
+            // Skin is 64x64 pixels
+            const materials = [];
+            const faceOrder = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+            
+            faceOrder.forEach(face => {
+                const uv = uvMap[face];
+                const canvas = document.createElement('canvas');
+                canvas.width = uv.w;
+                canvas.height = uv.h;
+                const ctx = canvas.getContext('2d');
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(texture.image, uv.x, uv.y, uv.w, uv.h, 0, 0, uv.w, uv.h);
+                
+                const faceTexture = new THREE.CanvasTexture(canvas);
+                faceTexture.magFilter = THREE.NearestFilter;
+                faceTexture.minFilter = THREE.NearestFilter;
+                materials.push(new THREE.MeshLambertMaterial({ map: faceTexture }));
+            });
+            
+            return materials;
+        }
+        
+        // Minecraft skin UV layout (64x64 skin)
+        const SKIN_UV = {
+            head: {
+                right:  { x: 0,  y: 8,  w: 8, h: 8 },
+                left:   { x: 16, y: 8,  w: 8, h: 8 },
+                top:    { x: 8,  y: 0,  w: 8, h: 8 },
+                bottom: { x: 16, y: 0,  w: 8, h: 8 },
+                front:  { x: 8,  y: 8,  w: 8, h: 8 },
+                back:   { x: 24, y: 8,  w: 8, h: 8 }
+            },
+            body: {
+                right:  { x: 16, y: 20, w: 4,  h: 12 },
+                left:   { x: 28, y: 20, w: 4,  h: 12 },
+                top:    { x: 20, y: 16, w: 8,  h: 4 },
+                bottom: { x: 28, y: 16, w: 8,  h: 4 },
+                front:  { x: 20, y: 20, w: 8,  h: 12 },
+                back:   { x: 32, y: 20, w: 8,  h: 12 }
+            },
+            rightArm: {
+                right:  { x: 40, y: 20, w: 4, h: 12 },
+                left:   { x: 48, y: 20, w: 4, h: 12 },
+                top:    { x: 44, y: 16, w: 4, h: 4 },
+                bottom: { x: 48, y: 16, w: 4, h: 4 },
+                front:  { x: 44, y: 20, w: 4, h: 12 },
+                back:   { x: 52, y: 20, w: 4, h: 12 }
+            },
+            leftArm: {
+                right:  { x: 32, y: 52, w: 4, h: 12 },
+                left:   { x: 40, y: 52, w: 4, h: 12 },
+                top:    { x: 36, y: 48, w: 4, h: 4 },
+                bottom: { x: 40, y: 48, w: 4, h: 4 },
+                front:  { x: 36, y: 52, w: 4, h: 12 },
+                back:   { x: 44, y: 52, w: 4, h: 12 }
+            },
+            rightLeg: {
+                right:  { x: 0,  y: 20, w: 4, h: 12 },
+                left:   { x: 8,  y: 20, w: 4, h: 12 },
+                top:    { x: 4,  y: 16, w: 4, h: 4 },
+                bottom: { x: 8,  y: 16, w: 4, h: 4 },
+                front:  { x: 4,  y: 20, w: 4, h: 12 },
+                back:   { x: 12, y: 20, w: 4, h: 12 }
+            },
+            leftLeg: {
+                right:  { x: 16, y: 52, w: 4, h: 12 },
+                left:   { x: 24, y: 52, w: 4, h: 12 },
+                top:    { x: 20, y: 48, w: 4, h: 4 },
+                bottom: { x: 24, y: 48, w: 4, h: 4 },
+                front:  { x: 20, y: 52, w: 4, h: 12 },
+                back:   { x: 28, y: 52, w: 4, h: 12 }
+            }
+        };
+        
+        // Default cyan material for fallback
+        const defaultMaterial = new THREE.MeshLambertMaterial({ color: 0x00ffff });
+        
+        function createPlayerModel(uuid, name) {
+            const group = new THREE.Group();
+            
+            // Body group (rotates with yaw)
+            const bodyGroup = new THREE.Group();
+            
+            // Scale: 1 block = 1 unit, player is 1.8 blocks tall
+            // Minecraft player dimensions in pixels: head 8x8x8, body 8x12x4, arms 4x12x4, legs 4x12x4
+            // Scale factor: 8 pixels = 0.5 blocks (head is 0.5 blocks)
+            const scale = 0.5 / 8; // 0.0625 units per pixel
+            
+            // Positioning from ground up:
+            // Legs: 0 to 0.75 (12 pixels)
+            // Body: 0.75 to 1.5 (12 pixels)
+            // Head: 1.5 to 2.0 (8 pixels)
+            
+            // Head (separate group for pitch rotation)
+            const headGroup = new THREE.Group();
+            headGroup.position.y = 1.5; // Position at top of body
+            
+            const head = new THREE.Mesh(
+                new THREE.BoxGeometry(8 * scale, 8 * scale, 8 * scale),
+                defaultMaterial
+            );
+            head.position.y = 4 * scale; // Center head (0.25 above headGroup = 1.75 total)
+            headGroup.add(head);
+            
+            // Body - center at 1.125 (spans 0.75 to 1.5)
+            const body = new THREE.Mesh(
+                new THREE.BoxGeometry(8 * scale, 12 * scale, 4 * scale),
+                defaultMaterial
+            );
+            body.position.y = 1.125;
+            bodyGroup.add(body);
+            
+            // Right Arm - same height as body
+            const rightArm = new THREE.Mesh(
+                new THREE.BoxGeometry(4 * scale, 12 * scale, 4 * scale),
+                defaultMaterial
+            );
+            rightArm.position.set(-6 * scale, 1.125, 0);
+            bodyGroup.add(rightArm);
+            
+            // Left Arm
+            const leftArm = new THREE.Mesh(
+                new THREE.BoxGeometry(4 * scale, 12 * scale, 4 * scale),
+                defaultMaterial
+            );
+            leftArm.position.set(6 * scale, 1.125, 0);
+            bodyGroup.add(leftArm);
+            
+            // Right Leg - center at 0.375 (spans 0 to 0.75)
+            const rightLeg = new THREE.Mesh(
+                new THREE.BoxGeometry(4 * scale, 12 * scale, 4 * scale),
+                defaultMaterial
+            );
+            rightLeg.position.set(-2 * scale, 0.375, 0);
+            bodyGroup.add(rightLeg);
+            
+            // Left Leg
+            const leftLeg = new THREE.Mesh(
+                new THREE.BoxGeometry(4 * scale, 12 * scale, 4 * scale),
+                defaultMaterial
+            );
+            leftLeg.position.set(2 * scale, 0.375, 0);
+            bodyGroup.add(leftLeg);
+            
+            bodyGroup.add(headGroup);
+            group.add(bodyGroup);
+            
+            // Name tag (always faces camera)
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(0, 0, 256, 64);
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 28px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(name || uuid.substring(0, 8), 128, 42);
+            
+            const nameTexture = new THREE.CanvasTexture(canvas);
+            const nameTag = new THREE.Mesh(
+                new THREE.PlaneGeometry(1.5, 0.4),
+                new THREE.MeshBasicMaterial({ map: nameTexture, transparent: true, depthTest: false })
+            );
+            nameTag.position.y = 2.2;
+            nameTag.renderOrder = 999;
+            group.add(nameTag);
+            
+            scene.add(group);
+            
+            // Load skin texture
+            const skinUrl = `https://crafatar.com/skins/${uuid}`;
+            const loader = new THREE.TextureLoader();
+            loader.crossOrigin = 'anonymous';
+            loader.load(skinUrl, (texture) => {
+                texture.magFilter = THREE.NearestFilter;
+                texture.minFilter = THREE.NearestFilter;
+                
+                // Apply textured materials to each body part
+                head.material = createSkinMaterials(texture, SKIN_UV.head);
+                body.material = createSkinMaterials(texture, SKIN_UV.body);
+                rightArm.material = createSkinMaterials(texture, SKIN_UV.rightArm);
+                leftArm.material = createSkinMaterials(texture, SKIN_UV.leftArm);
+                rightLeg.material = createSkinMaterials(texture, SKIN_UV.rightLeg);
+                leftLeg.material = createSkinMaterials(texture, SKIN_UV.leftLeg);
+            }, undefined, (err) => {
+                console.log('Could not load skin for', uuid, '- using default');
+            });
+            
+            return { group, bodyGroup, headGroup, nameTag };
+        }
+        
         function updatePlayer(data) {
-            const { uuid, name, x, y, z } = data;
+            const { uuid, name, x, y, z, yaw, pitch } = data;
             
             if (!players.has(uuid)) {
-                // Create player - Minecraft player is ~1.8 blocks tall
-                const group = new THREE.Group();
-                
-                // Body (centered at y=0.9, height 1.5)
-                const body = new THREE.Mesh(
-                    new THREE.BoxGeometry(0.6, 1.5, 0.3),
-                    new THREE.MeshLambertMaterial({ color: 0x00ffff })
-                );
-                body.position.y = 0.75; // Body center at 0.75 (0 to 1.5)
-                
-                // Head (on top of body)
-                const head = new THREE.Mesh(
-                    new THREE.BoxGeometry(0.5, 0.5, 0.5),
-                    new THREE.MeshLambertMaterial({ color: 0x00ffff })
-                );
-                head.position.y = 1.75; // Head center at 1.75
-                
-                // Name tag
-                const canvas = document.createElement('canvas');
-                canvas.width = 256;
-                canvas.height = 64;
-                const ctx = canvas.getContext('2d');
-                ctx.fillStyle = '#000';
-                ctx.fillRect(0, 0, 256, 64);
-                ctx.fillStyle = '#fff';
-                ctx.font = '32px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(name || uuid.substring(0, 8), 128, 42);
-                
-                const nameTexture = new THREE.CanvasTexture(canvas);
-                const nameTag = new THREE.Mesh(
-                    new THREE.PlaneGeometry(2, 0.5),
-                    new THREE.MeshBasicMaterial({ map: nameTexture, transparent: true })
-                );
-                nameTag.position.y = 2.3;
-                
-                group.add(body);
-                group.add(head);
-                group.add(nameTag);
-                scene.add(group);
-                
-                players.set(uuid, { group, nameTag });
+                const playerModel = createPlayerModel(uuid, name);
+                players.set(uuid, playerModel);
             }
             
             const player = players.get(uuid);
-            // Minecraft blocks at (x,y,z) span x→x+1, y→y+1, z→z+1
-            // Our Three.js blocks are centered, so block (19,78,27) spans 18.5→19.5, etc.
-            // Offset player by -0.5 on all axes to align with our block positions
+            
+            // Position (offset by -0.5 to align with our centered blocks)
             player.group.position.set(x - 0.5, y - 0.5, z - 0.5);
+            
+            // Rotation: Minecraft yaw: 0 = south (+Z), 90 = west (-X), 180 = north (-Z), 270 = east (+X)
+            // Three.js: rotation.y = 0 means facing +Z
+            // Convert: Three.js rotation = -yaw in radians
+            if (yaw !== undefined) {
+                const yawRad = -yaw * Math.PI / 180;
+                player.bodyGroup.rotation.y = yawRad;
+            }
+            
+            // Pitch: positive = looking down, negative = looking up (in Minecraft)
+            // Three.js: positive rotation.x = tilt down
+            if (pitch !== undefined && player.headGroup) {
+                const pitchRad = pitch * Math.PI / 180;
+                // Clamp pitch to reasonable values
+                player.headGroup.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitchRad));
+            }
+            
+            // Name tag always faces camera
             player.nameTag.lookAt(camera.position);
             
             document.getElementById('player-count').textContent = players.size;
@@ -538,16 +710,15 @@
                     const centerY = (minY + maxY) / 2;
                     const centerZ = (minZ + maxZ) / 2;
                     
-                    // Position camera above and back from center
-                    camera.position.set(centerX, centerY + 50, centerZ + 80);
+                    // Position camera above and back from center (in -Z direction so we look toward +Z)
+                    camera.position.set(centerX, centerY + 50, centerZ - 80);
                     
-                    // Update yaw and pitch to match camera look direction
+                    // Calculate direction FROM camera TO target
                     const dx = centerX - camera.position.x;
                     const dy = centerY - camera.position.y;
                     const dz = centerZ - camera.position.z;
-                    yaw = Math.atan2(dx, dz);
-                    const distance = Math.sqrt(dx * dx + dz * dz);
-                    pitch = -Math.atan2(dy, distance);
+                    yaw = Math.atan2(dx, dz) + Math.PI;
+                    pitch = 0; // Look horizontally
                     
                     // Apply the rotation immediately
                     camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));

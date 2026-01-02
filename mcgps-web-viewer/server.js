@@ -14,6 +14,7 @@
  */
 
 const express = require('express');
+const path = require('path');
 const { spawn } = require('child_process');
 const skinService = require('./SkinService');
 
@@ -36,8 +37,8 @@ const playerSkins = new Map();
 // Active SSE clients
 const clients = new Set();
 
-// Serve static files from public directory
-app.use(express.static('public'));
+// Serve static files from public directory (use absolute path)
+app.use(express.static(path.join(__dirname, 'public')));
 
 /**
  * SSE endpoint - streams telemetry to browsers
