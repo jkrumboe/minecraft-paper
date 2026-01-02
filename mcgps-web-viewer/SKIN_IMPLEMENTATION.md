@@ -164,35 +164,76 @@ Constants in `SkinService.js`:
 
 ---
 
-## Block Texture Improvements (Jan 2, 2026)
+## Procedural Block Texture System (Jan 3, 2026)
 
-### Enhanced Block Type Support
+### Overview
 
-Added comprehensive block type recognition and proper texture mapping:
+Replaced static block colors with a comprehensive procedural texture generation system that creates authentic Minecraft-style textures at runtime.
 
-**New Block Types:**
--  **Cobblestone** - proper cobblestone texture (was mapped to generic stone)
--  **Gravel** - dedicated gravel texture  
--  **Oak Logs** - with top/side different textures (bark on sides, rings on top/bottom)
--  **Oak Planks** - wooden plank texture
--  **Oak Leaves** - transparent leaf texture with proper alpha channel
--  **Snow** - bright white snow texture
--  **Sand** - now properly mapped to sand texture (was incorrectly mapped to stone)
+### How It Works
 
-**Improved Block Mapping Logic:**
-- Checks for cobblestone BEFORE stone to avoid substring matching issues
-- Separates _log blocks from generic wood/planks  
-- Proper leaves recognition with transparency
-- Dedicated snow texture
-- All ores map to stone appearance
+**Texture Generation:**
+- Uses HTML5 Canvas to generate 16x16 pixel textures
+- Applies `THREE.NearestFilter` for pixelated Minecraft aesthetic
+- Adds noise and variation for natural-looking blocks
+- Supports transparency for water, glass, and leaves
 
-**Frontend Improvements:**
-- Added 7 new textures from Minecraft 1.20.4 assets
-- Multi-material support for logs (different top vs. side)
-- Transparency for leaves (alpha: 0.9) and water (alpha: 0.6)
-- NearestFilter for authentic pixelated look
+**Multi-Face Textures:**
+- Blocks like grass have different top, side, and bottom textures
+- Grass top = green with variations
+- Grass side = dirt with green edge at top
+- Grass bottom = plain dirt
+- Logs have bark on sides and rings on top/bottom
 
-**Performance:**
-- Multi-material blocks (grass, wood) rendered individually
-- Single-material blocks use geometry merging
-- Face culling active to skip hidden faces
+### Supported Block Types (100+)
+
+**Natural Terrain:**
+- `grass_block`, `dirt`, `stone`, `cobblestone`, `sand`, `gravel`, `clay`
+
+**Ores:**
+- `coal_ore`, `iron_ore`, `gold_ore`, `diamond_ore`, `redstone_ore`
+- `lapis_ore`, `emerald_ore`, `copper_ore`
+- All deepslate variants
+
+**Wood Types:**
+- All log types (oak, spruce, birch, jungle, acacia, dark_oak, mangrove, cherry)
+- All plank types
+- All leaf types (with transparency)
+
+**Nether Blocks:**
+- `netherrack`, `soul_sand`, `glowstone`, `magma_block`, `nether_bricks`
+- `basalt`, `blackstone`, crimson/warped variants
+
+**End Blocks:**
+- `end_stone`, `end_stone_bricks`, `purpur_block`
+
+**Building Blocks:**
+- `bricks`, `stone_bricks`, `obsidian`, `glass`
+- All concrete colors, all wool colors, all terracotta colors
+
+**Functional Blocks:**
+- `tnt` (multi-face), `crafting_table` (multi-face), `furnace` (multi-face)
+
+### UV Mapping
+
+Each block face includes proper UV coordinates:
+```javascript
+FACE_DATA = {
+    py: { uvs: [0,0, 0,1, 1,1, 1,0], texType: 'top' },    // Top face
+    ny: { uvs: [0,1, 1,1, 1,0, 0,0], texType: 'bottom' }, // Bottom face
+    px/nx/pz/nz: { texType: 'side' }                       // Side faces
+}
+```
+
+### Texture Batching
+
+For performance, faces are grouped by texture rather than block type:
+1. All grass tops rendered together
+2. All grass sides rendered together
+3. All grass bottoms (dirt) rendered together
+
+This minimizes draw calls while maintaining multi-texture support.
+
+### Fallback Behavior
+
+Unknown block types fall back to the stone texture to ensure all blocks are visible.

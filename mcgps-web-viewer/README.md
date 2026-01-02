@@ -5,11 +5,14 @@ Real-time 3D visualization of Minecraft player positions from the McGpsTelemetry
 ## Features
 
 ✨ **Real-time Updates** - Uses Server-Sent Events (SSE) to stream player positions  
-🎮 **3D Visualization** - Three.js powered 3D world with player avatars  
-🎨 **Color-coded Players** - Each player gets a unique color  
-📍 **Position Trails** - See the path each player has taken  
-📊 **Player List** - Live coordinates and player count  
-🎯 **Interactive Controls** - Rotate, pan, and zoom the camera  
+🎮 **3D Visualization** - Three.js powered 3D world with authentic Minecraft textures  
+🧱 **Procedural Block Textures** - Grass, dirt, stone, ores, wood, leaves, and 100+ block types  
+👤 **Player Skins** - Fetches real player skins from Mojang's Session Server API  
+🎥 **Multiple Camera Modes** - Free cam, 2D top-down, first-person, and third-person views  
+📦 **Chunk-based Rendering** - Efficient world streaming with frustum culling  
+🌍 **Multi-world Support** - Overworld, Nether, and End dimensions  
+📊 **Player Inventory** - View health, food, XP, armor, and full inventory  
+🔄 **Smooth Interpolation** - Fluid player movement between updates  
 
 ## Quick Start
 
@@ -48,16 +51,33 @@ Navigate to: **http://localhost:3000**
 
 ## Controls
 
+### Camera Modes
+- **2D Button** - Top-down orthographic view
+- **Free Cam Button** - Default flying camera (active by default)
+- **First Person Button** - View through a player's eyes
+- **Third Person Button** - GTA-style follow camera behind player
+
+### Free Cam Controls
+- **WASD**: Move forward/back/left/right
+- **Space**: Move up
+- **Shift**: Move down
 - **Mouse Drag**: Rotate camera
-- **Right Click + Drag**: Pan camera
-- **Scroll Wheel**: Zoom in/out
-- **R Key**: Reset camera to default position
+
+### 2D Mode Controls
+- **WASD**: Pan the view
+- **Space/Shift**: Zoom in/out
+- **Mouse Drag**: Pan the view
+
+### Player Interaction
+- **Click on Player**: Open inventory panel
+- **ESC**: Exit first/third person mode, close modals
 
 ## API Endpoints
 
 - `GET /` - Web interface
 - `GET /telemetry-stream` - SSE stream of player updates
-- `GET /api/players` - JSON of all current player positions
+- `GET /api/players` - JSON of all current player positions with skin data
+- `GET /api/players/:uuid/skin` - Get skin URL and model type for a player
 - `GET /api/players/:uuid/history` - Position history for a specific player
 
 ## Customization
