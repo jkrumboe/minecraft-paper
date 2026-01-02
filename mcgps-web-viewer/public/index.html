@@ -220,15 +220,48 @@
             // Group blocks by type for batching
             const byType = {};
             
+            // Transparent block types that need special handling
+            const transparentTypes = new Set(['water', 'leaves']);
+            
             blocks.forEach(({ x, y, z, type = 'stone' }) => {
+                const isTransparent = transparentTypes.has(type);
+                const isWater = type === 'water';
+                
                 // Determine visible faces (occlusion culling)
                 const faces = [];
-                if (!blockMap.has(`${x+1},${y},${z}`)) faces.push('px');
-                if (!blockMap.has(`${x-1},${y},${z}`)) faces.push('nx');
-                if (!blockMap.has(`${x},${y+1},${z}`)) faces.push('py');
-                if (!blockMap.has(`${x},${y-1},${z}`)) faces.push('ny');
-                if (!blockMap.has(`${x},${y},${z+1}`)) faces.push('pz');
-                if (!blockMap.has(`${x},${y},${z-1}`)) faces.push('nz');
+                
+                // For each direction, check if we should render the face
+                const checkFace = (dx, dy, dz, faceKey) => {
+                    const adjacentKey = `${x+dx},${y+dy},${z+dz}`;
+                    const adjacentType = blockMap.get(adjacentKey);
+                    
+                    if (isWater) {
+                        // Water: only render faces adjacent to non-water (air or solid blocks)
+                        // This creates the water surface effect
+                        if (!adjacentType || (adjacentType !== 'water')) {
+                            faces.push(faceKey);
+                        }
+                    } else if (!adjacentType) {
+                        // No block there, render face
+                        faces.push(faceKey);
+                    } else if (adjacentType === 'water') {
+                        // Solid block next to water - always render this face
+                        faces.push(faceKey);
+                    } else if (isTransparent) {
+                        // For other transparent blocks (leaves), only cull if adjacent is same type
+                        if (adjacentType !== type) {
+                            faces.push(faceKey);
+                        }
+                    }
+                    // For solid blocks next to other solid blocks, face is culled
+                };
+                
+                checkFace(1, 0, 0, 'px');
+                checkFace(-1, 0, 0, 'nx');
+                checkFace(0, 1, 0, 'py');
+                checkFace(0, -1, 0, 'ny');
+                checkFace(0, 0, 1, 'pz');
+                checkFace(0, 0, -1, 'nz');
                 
                 if (faces.length === 0) return; // Fully occluded
                 
@@ -347,6 +380,22 @@
             
             // Build mesh for this chunk
             buildAndAddChunkMesh(key, blocks);
+            
+            // Rebuild adjacent chunks to fix water seams at boundaries
+            const adjacentKeys = [
+                getChunkKey2D(chunkX - 1, chunkZ),
+                getChunkKey2D(chunkX + 1, chunkZ),
+                getChunkKey2D(chunkX, chunkZ - 1),
+                getChunkKey2D(chunkX, chunkZ + 1)
+            ];
+            
+            adjacentKeys.forEach(adjKey => {
+                const adjChunk = loadedChunkData.get(adjKey);
+                if (adjChunk) {
+                    // Rebuild adjacent chunk with updated block map
+                    buildAndAddChunkMesh(adjKey, adjChunk.blocks);
+                }
+            });
             
             updateBlockCount();
             

@@ -128,6 +128,7 @@ public class ChunkStreamService {
     
     /**
      * Stream a single chunk worth of blocks
+     * Now captures ALL blocks with exposed faces (adjacent to air or water)
      */
     private void streamSingleChunk(Player player, World world, int chunkX, int chunkZ, int playerY) {
         if (world == null) return;
@@ -137,45 +138,43 @@ public class ChunkStreamService {
         int endX = startX + 15;
         int endZ = startZ + 15;
         
-        // Scan height based on player position
+        // Scan range based on player position
         int startY = Math.min(playerY + HEIGHT_ABOVE_PLAYER, world.getMaxHeight() - 1);
-        int endY = Math.max(playerY - 50, world.getMinHeight());
+        int endY = Math.max(playerY - 100, world.getMinHeight());
         
         List<BlockData> blocks = new ArrayList<>();
         
+        // Scan every block in the chunk volume
         for (int x = startX; x <= endX; x += SAMPLE_INTERVAL) {
             for (int z = startZ; z <= endZ; z += SAMPLE_INTERVAL) {
-                boolean foundGround = false;
-                
-                for (int y = startY; y >= endY && !foundGround; y--) {
+                for (int y = startY; y >= endY; y--) {
                     Block block = world.getBlockAt(x, y, z);
                     Material type = block.getType();
                     
-                    if (type != Material.AIR && type != Material.CAVE_AIR && type != Material.VOID_AIR) {
-                        String blockType = getSimplifiedBlockType(type);
-                        
-                        if (blockType.equals("vegetation")) {
-                            continue;
+                    // Skip air blocks
+                    if (type == Material.AIR || type == Material.CAVE_AIR || type == Material.VOID_AIR) {
+                        continue;
+                    }
+                    
+                    String blockType = getSimplifiedBlockType(type);
+                    
+                    // Skip vegetation
+                    if (blockType.equals("vegetation")) {
+                        continue;
+                    }
+                    
+                    // Always include water blocks (they're transparent and need to be rendered)
+                    if (blockType.equals("water")) {
+                        // Only include water at surface or edges (adjacent to air or non-water solid)
+                        if (hasWaterExposedFace(world, x, y, z)) {
+                            blocks.add(new BlockData(x, y, z, blockType));
                         }
-                        
+                        continue;
+                    }
+                    
+                    // Check if this solid block has any exposed face (adjacent to air or water)
+                    if (hasExposedFace(world, x, y, z)) {
                         blocks.add(new BlockData(x, y, z, blockType));
-                        
-                        if (isGroundBlock(type)) {
-                            foundGround = true;
-                            // Add 2 more blocks below for depth
-                            for (int depth = 1; depth <= 2; depth++) {
-                                int belowY = y - depth;
-                                if (belowY >= world.getMinHeight()) {
-                                    Block belowBlock = world.getBlockAt(x, belowY, z);
-                                    if (belowBlock.getType() != Material.AIR) {
-                                        String belowType = getSimplifiedBlockType(belowBlock.getType());
-                                        if (!belowType.equals("vegetation")) {
-                                            blocks.add(new BlockData(x, belowY, z, belowType));
-                                        }
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -184,6 +183,48 @@ public class ChunkStreamService {
         if (!blocks.isEmpty()) {
             emitChunkData(player, world, chunkX, chunkZ, blocks);
         }
+    }
+    
+    /**
+     * Check if a water block has any face exposed to air or non-water blocks
+     */
+    private boolean hasWaterExposedFace(World world, int x, int y, int z) {
+        return isNotWater(world.getBlockAt(x + 1, y, z).getType()) ||
+               isNotWater(world.getBlockAt(x - 1, y, z).getType()) ||
+               isNotWater(world.getBlockAt(x, y + 1, z).getType()) ||
+               isNotWater(world.getBlockAt(x, y - 1, z).getType()) ||
+               isNotWater(world.getBlockAt(x, y, z + 1).getType()) ||
+               isNotWater(world.getBlockAt(x, y, z - 1).getType());
+    }
+    
+    /**
+     * Check if a material is NOT water (for water surface detection)
+     */
+    private boolean isNotWater(Material material) {
+        return material != Material.WATER;
+    }
+    
+    /**
+     * Check if a block has any face exposed to air or water
+     */
+    private boolean hasExposedFace(World world, int x, int y, int z) {
+        return isTransparent(world.getBlockAt(x + 1, y, z).getType()) ||
+               isTransparent(world.getBlockAt(x - 1, y, z).getType()) ||
+               isTransparent(world.getBlockAt(x, y + 1, z).getType()) ||
+               isTransparent(world.getBlockAt(x, y - 1, z).getType()) ||
+               isTransparent(world.getBlockAt(x, y, z + 1).getType()) ||
+               isTransparent(world.getBlockAt(x, y, z - 1).getType());
+    }
+    
+    /**
+     * Check if a material is transparent (air or water)
+     */
+    private boolean isTransparent(Material material) {
+        return material == Material.AIR || 
+               material == Material.CAVE_AIR || 
+               material == Material.VOID_AIR ||
+               material == Material.WATER ||
+               material.name().contains("LEAVES");
     }
     
     /**
