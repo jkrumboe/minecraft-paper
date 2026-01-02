@@ -275,6 +275,10 @@
             Object.keys(byType).forEach(type => {
                 const data = byType[type];
                 const mat = materials[type] || materials.stone;
+                const isWater = type === 'water';
+                
+                // Water inset to prevent z-fighting with adjacent solid blocks
+                const inset = isWater ? 0.01 : 0;
                 
                 // Merge all blocks of this type into one geometry
                 const positions = [];
@@ -285,12 +289,13 @@
                 data.forEach(({ x, y, z, faces }) => {
                     faces.forEach(faceKey => {
                         const face = FACE_DATA[faceKey];
-                        // Add translated vertices
+                        // Add translated vertices with optional inset for water
                         for (let i = 0; i < 12; i += 3) {
+                            // Apply inset in the direction of the face normal
                             positions.push(
-                                face.verts[i] + x,
-                                face.verts[i + 1] + y,
-                                face.verts[i + 2] + z
+                                face.verts[i] + x - face.norm[0] * inset,
+                                face.verts[i + 1] + y - face.norm[1] * inset,
+                                face.verts[i + 2] + z - face.norm[2] * inset
                             );
                         }
                         // Add normals (4 vertices per face)

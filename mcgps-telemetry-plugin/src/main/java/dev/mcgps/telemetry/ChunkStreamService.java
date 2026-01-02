@@ -163,12 +163,10 @@ public class ChunkStreamService {
                         continue;
                     }
                     
-                    // Always include water blocks (they're transparent and need to be rendered)
+                    // Always include ALL water blocks - viewer needs complete water data
+                    // to properly cull internal faces at chunk boundaries
                     if (blockType.equals("water")) {
-                        // Only include water at surface or edges (adjacent to air or non-water solid)
-                        if (hasWaterExposedFace(world, x, y, z)) {
-                            blocks.add(new BlockData(x, y, z, blockType));
-                        }
+                        blocks.add(new BlockData(x, y, z, blockType));
                         continue;
                     }
                     
