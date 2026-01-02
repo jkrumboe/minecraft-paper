@@ -502,14 +502,27 @@
             globalBlockMap = getGlobalBlockMap();
             chunkMeshes = getChunkMeshes();
             
-            // Show new world's meshes (or they'll be built as chunks arrive)
-            const newMeshes = getChunkMeshes();
-            newMeshes.forEach(mesh => {
+            // If we have chunk data but no meshes, build them now
+            // (this happens when chunks were received while viewing a different world)
+            if (loadedChunkData.size > 0 && chunkMeshes.size === 0) {
+                console.log(`Building meshes for ${loadedChunkData.size} cached chunks in ${worldName}...`);
+                loadedChunkData.forEach((chunkInfo, key2D) => {
+                    if (chunkInfo.blocks && chunkInfo.blocks.length > 0) {
+                        buildAndAddChunkMesh(key2D, chunkInfo.blocks);
+                    }
+                });
+                console.log(`Built ${chunkMeshes.size} meshes for ${worldName}`);
+            }
+            
+            // Show new world's meshes
+            chunkMeshes.forEach(mesh => {
                 mesh.visible = true;
-                chunkGroup.add(mesh);
+                if (!mesh.parent) {
+                    chunkGroup.add(mesh);
+                }
             });
             
-            console.log(`Switched to ${worldName} - ${loadedChunkData.size} chunks cached`);
+            console.log(`Switched to ${worldName} - ${loadedChunkData.size} chunks, ${chunkMeshes.size} meshes`);
             
             // Reset camera position for new world
             initialCameraPositioned = false;

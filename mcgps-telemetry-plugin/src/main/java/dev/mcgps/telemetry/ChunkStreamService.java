@@ -165,9 +165,10 @@ public class ChunkStreamService {
         int endX = startX + 15;
         int endZ = startZ + 15;
         
-        // Scan range based on player position
-        int startY = Math.min(playerY + HEIGHT_ABOVE_PLAYER, world.getMaxHeight() - 1);
-        int endY = Math.max(playerY - 100, world.getMinHeight());
+        // Scan the full vertical range of the world to capture all terrain
+        // This ensures chunks are complete regardless of player Y position
+        int startY = world.getMaxHeight() - 1;
+        int endY = world.getMinHeight();
         
         List<BlockData> blocks = new ArrayList<>();
         
