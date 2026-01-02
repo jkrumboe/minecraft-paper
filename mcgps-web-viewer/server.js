@@ -16,6 +16,7 @@
 const express = require('express');
 const path = require('path');
 const { spawn } = require('child_process');
+const https = require('https');
 const skinService = require('./SkinService');
 
 const app = express();
@@ -39,6 +40,46 @@ const clients = new Set();
 
 // Serve static files from public directory (use absolute path)
 app.use(express.static(path.join(__dirname, 'public')));
+
+/**
+ * Skin proxy endpoint - fetches skin from Mojang and serves to client (bypasses CORS)
+ */
+app.get('/skin/:uuid', async (req, res) => {
+    try {
+        const uuid = req.params.uuid.replace(/-/g, '');
+        
+        // Get skin URL from cache or fetch from Mojang
+        const skinData = await skinService.getSkin(uuid);
+        
+        if (!skinData || !skinData.skinUrl) {
+            return res.status(404).send('Skin not found');
+        }
+        
+        // Fetch the skin image from Mojang using https module
+        https.get(skinData.skinUrl, { 
+            headers: { 'User-Agent': 'McGPS-Telemetry/1.0' }
+        }, (skinResponse) => {
+            if (skinResponse.statusCode !== 200) {
+                return res.status(skinResponse.statusCode).send('Failed to fetch skin');
+            }
+            
+            // Set headers
+            res.set('Content-Type', 'image/png');
+            res.set('Cache-Control', 'public, max-age=3600');
+            res.set('Access-Control-Allow-Origin', '*');
+            
+            // Pipe the image directly to response
+            skinResponse.pipe(res);
+        }).on('error', (err) => {
+            console.error('Skin fetch error:', err.message);
+            res.status(500).send('Error fetching skin');
+        });
+        
+    } catch (error) {
+        console.error('Skin proxy error:', error.message);
+        res.status(500).send('Error fetching skin');
+    }
+});
 
 /**
  * SSE endpoint - streams telemetry to browsers

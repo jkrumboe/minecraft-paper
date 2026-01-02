@@ -1538,8 +1538,8 @@
         // Minecraft skin UV layout (64x64 skin)
         const SKIN_UV = {
             head: {
-                right:  { x: 0,  y: 8,  w: 8, h: 8 },
-                left:   { x: 16, y: 8,  w: 8, h: 8 },
+                right:  { x: 16, y: 8,  w: 8, h: 8 },
+                left:   { x: 0,  y: 8,  w: 8, h: 8 },
                 top:    { x: 8,  y: 0,  w: 8, h: 8 },
                 bottom: { x: 16, y: 0,  w: 8, h: 8 },
                 front:  { x: 8,  y: 8,  w: 8, h: 8 },
@@ -1695,8 +1695,8 @@
             
             scene.add(group);
             
-            // Load skin texture
-            const skinUrl = `https://crafatar.com/skins/${uuid}`;
+            // Load skin texture via our server proxy (bypasses CORS)
+            const skinUrl = `/skin/${uuid}`;
             const loader = new THREE.TextureLoader();
             loader.crossOrigin = 'anonymous';
             loader.load(skinUrl, (texture) => {
