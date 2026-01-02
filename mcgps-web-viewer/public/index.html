@@ -910,25 +910,54 @@
             
             console.log(`Switching from ${currentWorld} to ${worldName}`);
             
-            // Hide current world's meshes
-            const currentMeshes = getChunkMeshes();
-            currentMeshes.forEach(mesh => {
-                mesh.visible = false;
-            });
+            // Get current world's meshes BEFORE updating currentWorld
+            const oldWorldMeshes = worldChunkMeshes.get(currentWorld);
+            
+            // Hide and remove current world's meshes from scene
+            if (oldWorldMeshes) {
+                console.log(`Hiding ${oldWorldMeshes.size} meshes from ${currentWorld}`);
+                oldWorldMeshes.forEach((mesh, key) => {
+                    mesh.visible = false;
+                    if (mesh.parent) {
+                        chunkGroup.remove(mesh);
+                    }
+                });
+            }
             
             // Update current world
             currentWorld = worldName;
             document.getElementById('current-world').textContent = worldName;
             
-            // Update references to new world's data
-            loadedChunkData = getLoadedChunkData();
-            globalBlockMap = getGlobalBlockMap();
-            chunkMeshes = getChunkMeshes();
+            // Ensure maps exist for the new world
+            if (!worldChunkData.has(worldName)) {
+                worldChunkData.set(worldName, new Map());
+            }
+            if (!worldBlockMaps.has(worldName)) {
+                worldBlockMaps.set(worldName, new Map());
+            }
+            if (!worldChunkMeshes.has(worldName)) {
+                worldChunkMeshes.set(worldName, new Map());
+            }
             
-            // If we have chunk data but no meshes, build them now
-            // (this happens when chunks were received while viewing a different world)
-            if (loadedChunkData.size > 0 && chunkMeshes.size === 0) {
-                console.log(`Building meshes for ${loadedChunkData.size} cached chunks in ${worldName}...`);
+            // Update references to new world's data
+            loadedChunkData = worldChunkData.get(worldName);
+            globalBlockMap = worldBlockMaps.get(worldName);
+            chunkMeshes = worldChunkMeshes.get(worldName);
+            
+            console.log(`New world state: ${loadedChunkData.size} cached chunks, ${chunkMeshes.size} existing meshes`);
+            
+            // Always rebuild meshes from chunk data to ensure consistency
+            if (loadedChunkData.size > 0) {
+                // Clear existing meshes first
+                chunkMeshes.forEach((mesh, key) => {
+                    if (mesh.parent) chunkGroup.remove(mesh);
+                    mesh.traverse(obj => {
+                        if (obj.geometry) obj.geometry.dispose();
+                    });
+                });
+                chunkMeshes.clear();
+                
+                console.log(`Rebuilding meshes for ${loadedChunkData.size} cached chunks in ${worldName}...`);
                 loadedChunkData.forEach((chunkInfo, key2D) => {
                     if (chunkInfo.blocks && chunkInfo.blocks.length > 0) {
                         buildAndAddChunkMesh(key2D, chunkInfo.blocks);
@@ -937,15 +966,7 @@
                 console.log(`Built ${chunkMeshes.size} meshes for ${worldName}`);
             }
             
-            // Show new world's meshes
-            chunkMeshes.forEach(mesh => {
-                mesh.visible = true;
-                if (!mesh.parent) {
-                    chunkGroup.add(mesh);
-                }
-            });
-            
-            console.log(`Switched to ${worldName} - ${loadedChunkData.size} chunks, ${chunkMeshes.size} meshes`);
+            console.log(`Switched to ${worldName} - ${loadedChunkData.size} chunks, ${chunkMeshes.size} meshes, chunkGroup has ${chunkGroup.children.length} children`);
             
             // Reset camera position for new world
             initialCameraPositioned = false;
