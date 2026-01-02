@@ -430,27 +430,33 @@
                 // Hide the player model we're viewing from
                 if (targetPlayer) {
                     targetPlayer.group.visible = false;
-                }
-                
-                if (targetData) {
-                    // Calculate the direction the player is looking
-                    // Minecraft yaw: 0=south(+Z), 90=west(-X), 180=north(-Z), 270=east(+X)
-                    // Three.js camera faces -Z by default, add PI to flip to face correct direction
-                    const playerYaw = (-targetData.yaw * Math.PI / 180) + Math.PI;
-                    const playerPitch = -targetData.pitch * Math.PI / 180;
                     
-                    // Position camera at player's eye level (offset by -0.5 to match block alignment)
-                    camera.position.set(targetData.x - 0.5, targetData.y + 1.0, targetData.z - 0.5);
+                    // Use interpolated position for smooth camera movement
+                    const playerYaw = targetPlayer.currentYaw + Math.PI;
+                    const playerPitch = -targetPlayer.currentPitch;
                     
-                    // Match player's view direction exactly
-                    camera.quaternion.setFromEuler(new THREE.Euler(playerPitch, playerYaw, 0, 'YXZ'));
+                    // Apply sneaking offset to camera height
+                    const sneakOffset = targetPlayer.sneakYOffset || 0;
+                    const eyeHeight = targetPlayer.isSneaking ? 0.85 : 1.0;
+                    
+                    // Position camera at player's eye level using interpolated position
+                    camera.position.set(
+                        targetPlayer.currentX - 0.5, 
+                        targetPlayer.currentY + eyeHeight + sneakOffset, 
+                        targetPlayer.currentZ - 0.5
+                    );
+                    
+                    // Smoothly interpolate camera rotation (0.5 = more responsive aiming)
+                    const targetQuat = new THREE.Quaternion();
+                    targetQuat.setFromEuler(new THREE.Euler(playerPitch, playerYaw, 0, 'YXZ'));
+                    camera.quaternion.slerp(targetQuat, 0.5);
                 }
                 
                 // Show crosshair in first person
                 document.getElementById('crosshair').style.display = 'block';
                 
                 document.getElementById('camera-pos').textContent = 
-                    `tFirst Person: ${targetData?.name || 'Unknown'}`;
+                    `👁️ First Person: ${targetData?.name || 'Unknown'}`;
                 return;
             } else {
                 // Make sure all players are visible when not in first person
@@ -463,25 +469,31 @@
             
             if (cameraMode === 'thirdperson' && followTarget) {
                 // Third person (GTA-style): camera behind and above the player
+                const targetPlayer = players.get(followTarget);
                 const targetData = playerData.get(followTarget);
-                if (targetData) {
-                    const playerYaw = (-targetData.yaw * Math.PI / 180) + Math.PI;
+                if (targetPlayer) {
+                    const playerYaw = targetPlayer.currentYaw + Math.PI;
                     
-                    // Position camera behind and above the player
-                    const distance = 5; // Distance behind player
-                    const height = 3;   // Height above player
+                    // Apply sneaking offset
+                    const sneakOffset = targetPlayer.sneakYOffset || 0;
+                    const distance = targetPlayer.isSneaking ? 4 : 5; // Closer when sneaking
+                    const height = targetPlayer.isSneaking ? 2 : 3;   // Lower when sneaking
                     
                     const offsetX = Math.sin(playerYaw) * distance;
                     const offsetZ = Math.cos(playerYaw) * distance;
                     
-                    camera.position.set(
-                        targetData.x + offsetX,
-                        targetData.y + height,
-                        targetData.z + offsetZ
-                    );
+                    // Use interpolated position for smooth following
+                    const targetCamX = targetPlayer.currentX + offsetX;
+                    const targetCamY = targetPlayer.currentY + height + sneakOffset;
+                    const targetCamZ = targetPlayer.currentZ + offsetZ;
+                    
+                    // Smooth camera movement
+                    camera.position.x = lerp(camera.position.x, targetCamX, 0.1);
+                    camera.position.y = lerp(camera.position.y, targetCamY, 0.1);
+                    camera.position.z = lerp(camera.position.z, targetCamZ, 0.1);
                     
                     // Look at the player's head
-                    camera.lookAt(targetData.x, targetData.y + 1.6, targetData.z);
+                    camera.lookAt(targetPlayer.currentX, targetPlayer.currentY + 1.6 + sneakOffset, targetPlayer.currentZ);
                 }
                 document.getElementById('camera-pos').textContent = 
                     `🎮 Third Person: ${targetData?.name || 'Unknown'}`;
@@ -1613,37 +1625,49 @@
             body.position.y = 1.125;
             bodyGroup.add(body);
             
-            // Right Arm - same height as body
+            // Right Arm - use pivot group for rotation at shoulder
+            const rightArmPivot = new THREE.Group();
+            rightArmPivot.position.set(-6 * scale, 1.5, 0); // Pivot at shoulder
             const rightArm = new THREE.Mesh(
                 new THREE.BoxGeometry(4 * scale, 12 * scale, 4 * scale),
                 defaultMaterial
             );
-            rightArm.position.set(-6 * scale, 1.125, 0);
-            bodyGroup.add(rightArm);
+            rightArm.position.y = -6 * scale; // Offset so it rotates from top
+            rightArmPivot.add(rightArm);
+            bodyGroup.add(rightArmPivot);
             
-            // Left Arm
+            // Left Arm - use pivot group for rotation at shoulder
+            const leftArmPivot = new THREE.Group();
+            leftArmPivot.position.set(6 * scale, 1.5, 0); // Pivot at shoulder
             const leftArm = new THREE.Mesh(
                 new THREE.BoxGeometry(4 * scale, 12 * scale, 4 * scale),
                 defaultMaterial
             );
-            leftArm.position.set(6 * scale, 1.125, 0);
-            bodyGroup.add(leftArm);
+            leftArm.position.y = -6 * scale; // Offset so it rotates from top
+            leftArmPivot.add(leftArm);
+            bodyGroup.add(leftArmPivot);
             
-            // Right Leg - center at 0.375 (spans 0 to 0.75)
+            // Right Leg - use pivot group for rotation at hip
+            const rightLegPivot = new THREE.Group();
+            rightLegPivot.position.set(-2 * scale, 0.75, 0); // Pivot at hip
             const rightLeg = new THREE.Mesh(
                 new THREE.BoxGeometry(4 * scale, 12 * scale, 4 * scale),
                 defaultMaterial
             );
-            rightLeg.position.set(-2 * scale, 0.375, 0);
-            bodyGroup.add(rightLeg);
+            rightLeg.position.y = -6 * scale; // Offset so it rotates from top
+            rightLegPivot.add(rightLeg);
+            bodyGroup.add(rightLegPivot);
             
-            // Left Leg
+            // Left Leg - use pivot group for rotation at hip
+            const leftLegPivot = new THREE.Group();
+            leftLegPivot.position.set(2 * scale, 0.75, 0); // Pivot at hip
             const leftLeg = new THREE.Mesh(
                 new THREE.BoxGeometry(4 * scale, 12 * scale, 4 * scale),
                 defaultMaterial
             );
-            leftLeg.position.set(2 * scale, 0.375, 0);
-            bodyGroup.add(leftLeg);
+            leftLeg.position.y = -6 * scale; // Offset so it rotates from top
+            leftLegPivot.add(leftLeg);
+            bodyGroup.add(leftLegPivot);
             
             bodyGroup.add(headGroup);
             group.add(bodyGroup);
@@ -1690,40 +1714,83 @@
                 console.log('Could not load skin for', uuid, '- using default');
             });
             
-            return { group, bodyGroup, headGroup, nameTag };
+            return { 
+                group, 
+                bodyGroup, 
+                headGroup, 
+                nameTag,
+                // Limb pivots for animation
+                rightArmPivot,
+                leftArmPivot,
+                rightLegPivot,
+                leftLegPivot,
+                // Animation state
+                walkTime: 0,
+                isWalking: false,
+                isSneaking: false,
+                // Target position/rotation for interpolation
+                targetX: 0,
+                targetY: 0,
+                targetZ: 0,
+                targetYaw: 0,
+                targetPitch: 0,
+                // Current interpolated position/rotation
+                currentX: 0,
+                currentY: 0,
+                currentZ: 0,
+                currentYaw: 0,
+                currentPitch: 0,
+                // Previous position for speed calculation
+                prevX: 0,
+                prevZ: 0
+            };
+        }
+        
+        // Interpolation factor for smooth movement (higher = faster catch-up)
+        const LERP_FACTOR = 0.15;
+        const ROTATION_LERP = 0.2;
+        
+        // Lerp helper
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+        
+        // Angle lerp helper (handles wrapping)
+        function lerpAngle(a, b, t) {
+            let diff = b - a;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            return a + diff * t;
         }
         
         function updatePlayer(data) {
-            const { uuid, name, x, y, z, yaw, pitch } = data;
+            const { uuid, name, x, y, z, yaw, pitch, sneaking } = data;
             
             if (!players.has(uuid)) {
                 const playerModel = createPlayerModel(uuid, name);
+                // Initialize position
+                playerModel.targetX = x;
+                playerModel.targetY = y;
+                playerModel.targetZ = z;
+                playerModel.currentX = x;
+                playerModel.currentY = y;
+                playerModel.currentZ = z;
+                playerModel.prevX = x;
+                playerModel.prevZ = z;
                 players.set(uuid, playerModel);
             }
             
             const player = players.get(uuid);
             
-            // Position (offset by -0.5 to align with our centered blocks)
-            player.group.position.set(x - 0.5, y - 0.5, z - 0.5);
+            // Update target position (from server data)
+            player.targetX = x;
+            player.targetY = y;
+            player.targetZ = z;
+            if (yaw !== undefined) player.targetYaw = -yaw * Math.PI / 180;
+            if (pitch !== undefined) player.targetPitch = pitch * Math.PI / 180;
             
-            // Rotation: Minecraft yaw: 0 = south (+Z), 90 = west (-X), 180 = north (-Z), 270 = east (+X)
-            // Three.js: rotation.y = 0 means facing +Z
-            // Convert: Three.js rotation = -yaw in radians
-            if (yaw !== undefined) {
-                const yawRad = -yaw * Math.PI / 180;
-                player.bodyGroup.rotation.y = yawRad;
-            }
-            
-            // Pitch: positive = looking down, negative = looking up (in Minecraft)
-            // Three.js: positive rotation.x = tilt down
-            if (pitch !== undefined && player.headGroup) {
-                const pitchRad = pitch * Math.PI / 180;
-                // Clamp pitch to reasonable values
-                player.headGroup.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitchRad));
-            }
-            
-            // Name tag always faces camera
-            player.nameTag.lookAt(camera.position);
+            // Update sneaking state (sneaking comes from server telemetry)
+            player.isSneaking = data.sneaking === true;
             
             // Store player data for inventory display
             playerData.set(uuid, data);
@@ -1737,6 +1804,101 @@
             }
             
             document.getElementById('player-count').textContent = players.size;
+        }
+        
+        // Animate all players (called every frame)
+        function animatePlayers() {
+            players.forEach((player, uuid) => {
+                // Interpolate position
+                player.currentX = lerp(player.currentX, player.targetX, LERP_FACTOR);
+                player.currentY = lerp(player.currentY, player.targetY, LERP_FACTOR);
+                player.currentZ = lerp(player.currentZ, player.targetZ, LERP_FACTOR);
+                
+                // Interpolate rotation
+                player.currentYaw = lerpAngle(player.currentYaw, player.targetYaw, ROTATION_LERP);
+                player.currentPitch = lerp(player.currentPitch, player.targetPitch, ROTATION_LERP);
+                
+                // Calculate movement speed for animation
+                const dx = player.currentX - player.prevX;
+                const dz = player.currentZ - player.prevZ;
+                const speed = Math.sqrt(dx * dx + dz * dz);
+                
+                // Update walking state
+                if (speed > 0.001) {
+                    player.isWalking = true;
+                    // Animation speed: slower for more realistic walk cycle
+                    const animSpeed = player.isSneaking ? 1.5 : 3;
+                    player.walkTime += speed * animSpeed;
+                } else {
+                    player.isWalking = false;
+                }
+                
+                // Walking animation - only swing when walking and NOT sneaking
+                const maxSwing = 0.5;
+                // When sneaking, legs stay straight - only arms swing slightly
+                let targetSwing = (player.isWalking && !player.isSneaking) ? Math.sin(player.walkTime) * maxSwing : 0;
+                let targetArmSwing = player.isWalking ? Math.sin(player.walkTime) * (player.isSneaking ? 0.15 : maxSwing) : 0;
+                
+                // Initialize swing value if not exists
+                if (player.currentSwing === undefined) player.currentSwing = 0;
+                if (player.currentArmSwing === undefined) player.currentArmSwing = 0;
+                
+                // Smoothly interpolate to target swing (returns to 0 when not walking)
+                player.currentSwing = lerp(player.currentSwing, targetSwing, 0.1);
+                player.currentArmSwing = lerp(player.currentArmSwing, targetArmSwing, 0.1);
+                
+                // Apply limb rotations - arms swing, legs stay straight when sneaking
+                if (player.rightArmPivot) {
+                    player.rightArmPivot.rotation.x = player.currentArmSwing;
+                }
+                if (player.leftArmPivot) {
+                    player.leftArmPivot.rotation.x = -player.currentArmSwing;
+                }
+                
+                // Sneaking animation - tilt body forward and lower height
+                const targetBodyTilt = player.isSneaking ? 0.5 : 0; // Lean forward when sneaking
+                const targetYOffset = player.isSneaking ? -0.25 : 0; // Lower when sneaking
+                
+                // Get current body tilt or initialize
+                if (player.bodyTilt === undefined) player.bodyTilt = 0;
+                if (player.sneakYOffset === undefined) player.sneakYOffset = 0;
+                
+                player.bodyTilt = lerp(player.bodyTilt, targetBodyTilt, 0.15);
+                player.sneakYOffset = lerp(player.sneakYOffset, targetYOffset, 0.15);
+                
+                // Legs: counter-rotate to stay vertical when body tilts, plus walking animation
+                if (player.rightLegPivot) {
+                    player.rightLegPivot.rotation.x = -player.currentSwing - player.bodyTilt;
+                }
+                if (player.leftLegPivot) {
+                    player.leftLegPivot.rotation.x = player.currentSwing - player.bodyTilt;
+                }
+                
+                // Store previous position for speed calculation
+                player.prevX = player.currentX;
+                player.prevZ = player.currentZ;
+                
+                // Apply interpolated position (offset by -0.5 to align with blocks)
+                player.group.position.set(
+                    player.currentX - 0.5, 
+                    player.currentY - 0.5 + player.sneakYOffset, 
+                    player.currentZ - 0.5
+                );
+                
+                // Apply rotation using Euler with YXZ order for proper sneaking pose
+                // First yaw (Y), then pitch forward for sneaking (X)
+                player.bodyGroup.rotation.order = 'YXZ';
+                player.bodyGroup.rotation.y = player.currentYaw;
+                player.bodyGroup.rotation.x = player.bodyTilt;
+                
+                if (player.headGroup) {
+                    // Head compensates for body tilt and adds player look pitch
+                    player.headGroup.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.currentPitch - player.bodyTilt));
+                }
+                
+                // Name tag always faces camera
+                player.nameTag.lookAt(camera.position);
+            });
         }
 
         // Connect to server
@@ -1812,6 +1974,7 @@
                 lastTime = currentTime;
             }
             
+            animatePlayers(); // Smooth player interpolation and animation
             updateCamera();
             updateFrustumCulling(); // Frustum cull chunks
             renderer.render(scene, camera);

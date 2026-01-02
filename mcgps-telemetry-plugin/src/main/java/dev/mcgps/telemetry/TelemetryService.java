@@ -142,14 +142,15 @@ public class TelemetryService {
         float yaw = loc.getYaw();
         float pitch = loc.getPitch();
         boolean onGround = player.isOnGround();
+        boolean isSneaking = player.isSneaking();
         
         // Get inventory data
         String inventoryJson = getInventoryJson(player);
         
         // Build JSON manually (no external libraries)
         String json = String.format(
-            "{\"ts\":%d,\"uuid\":\"%s\",\"name\":\"%s\",\"world\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.2f,\"pitch\":%.2f,\"onGround\":%b,\"health\":%.1f,\"food\":%d,\"level\":%d,\"inventory\":%s}",
-            timestamp, uuid, name, worldName, x, y, z, yaw, pitch, onGround,
+            "{\"ts\":%d,\"uuid\":\"%s\",\"name\":\"%s\",\"world\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.2f,\"pitch\":%.2f,\"onGround\":%b,\"sneaking\":%b,\"health\":%.1f,\"food\":%d,\"level\":%d,\"inventory\":%s}",
+            timestamp, uuid, name, worldName, x, y, z, yaw, pitch, onGround, isSneaking,
             player.getHealth(), player.getFoodLevel(), player.getLevel(), inventoryJson
         );
         
