@@ -435,22 +435,22 @@
             const { uuid, name, x, y, z } = data;
             
             if (!players.has(uuid)) {
-                // Create player
+                // Create player - Minecraft player is ~1.8 blocks tall
                 const group = new THREE.Group();
                 
-                // Body
+                // Body (centered at y=0.9, height 1.5)
                 const body = new THREE.Mesh(
                     new THREE.BoxGeometry(0.6, 1.5, 0.3),
                     new THREE.MeshLambertMaterial({ color: 0x00ffff })
                 );
-                body.position.y = 0.75;
+                body.position.y = 0.75; // Body center at 0.75 (0 to 1.5)
                 
-                // Head
+                // Head (on top of body)
                 const head = new THREE.Mesh(
                     new THREE.BoxGeometry(0.5, 0.5, 0.5),
                     new THREE.MeshLambertMaterial({ color: 0x00ffff })
                 );
-                head.position.y = 1.75;
+                head.position.y = 1.75; // Head center at 1.75
                 
                 // Name tag
                 const canvas = document.createElement('canvas');
@@ -469,7 +469,7 @@
                     new THREE.PlaneGeometry(2, 0.5),
                     new THREE.MeshBasicMaterial({ map: nameTexture, transparent: true })
                 );
-                nameTag.position.y = 2.5;
+                nameTag.position.y = 2.3;
                 
                 group.add(body);
                 group.add(head);
@@ -480,7 +480,10 @@
             }
             
             const player = players.get(uuid);
-            player.group.position.set(x, y, z);
+            // Minecraft blocks at (x,y,z) span x→x+1, y→y+1, z→z+1
+            // Our Three.js blocks are centered, so block (19,78,27) spans 18.5→19.5, etc.
+            // Offset player by -0.5 on all axes to align with our block positions
+            player.group.position.set(x - 0.5, y - 0.5, z - 0.5);
             player.nameTag.lookAt(camera.position);
             
             document.getElementById('player-count').textContent = players.size;
