@@ -49,6 +49,9 @@ const MAX_HISTORY = 100;
 // Store chunk data per player
 const chunkData = new Map();
 
+// Store the most recent chunk data for initial load
+let lastChunkData = null;
+
 // Store player skin data (resolved from Mojang API)
 const playerSkins = new Map();
 
@@ -76,11 +79,26 @@ app.get('/telemetry-stream', (req, res) => {
     const currentData = {};
     playerData.forEach((history, uuid) => {
         if (history.length > 0) {
-            currentData[uuid] = history[history.length - 1];
+            const playerInfo = history[history.length - 1];
+            
+            // Attach skin data if available
+            const skinData = playerSkins.get(uuid);
+            if (skinData) {
+                playerInfo.skinUrl = skinData.skinUrl;
+                playerInfo.model = skinData.model;
+            }
+            
+            currentData[uuid] = playerInfo;
         }
     });
     
     res.write(`data: ${JSON.stringify({ type: 'init', players: currentData })}\n\n`);
+    
+    // Send cached chunk data if available
+    if (lastChunkData) {
+        console.log(`Sending cached chunk data (${lastChunkData.blocks.length} blocks) to new client`);
+        res.write(`data: ${JSON.stringify({ type: 'chunks', data: lastChunkData })}\n\n`);
+    }
 
     // Remove client on disconnect
     req.on('close', () => {
@@ -254,6 +272,14 @@ function storeChunkData(data) {
         world: data.world,
         ts: data.ts
     });
+    
+    // Cache the chunk data for new clients
+    lastChunkData = {
+        blocks: data.blocks,
+        center: data.center,
+        radius: data.radius
+    };
+    console.log(`Cached chunk data with ${data.blocks.length} blocks`);
 }
 
 /**
@@ -452,13 +478,40 @@ async function readRealWorldBlocks(centerX, centerZ, radius) {
  * Simplify Minecraft block types to basic materials for rendering
  */
 function getSimplifiedBlockType(blockName) {
-    if (blockName.includes('grass')) return 'grass';
-    if (blockName.includes('dirt') || blockName.includes('coarse_dirt') || blockName.includes('podzol')) return 'dirt';
-    if (blockName.includes('stone') || blockName.includes('andesite') || blockName.includes('diorite') || blockName.includes('granite')) return 'stone';
-    if (blockName.includes('sand')) return 'stone'; // Use stone for sand
-    if (blockName.includes('gravel')) return 'stone';
-    if (blockName.includes('log') || blockName.includes('wood')) return 'dirt'; // Use dirt color for wood
-    if (blockName.includes('leaves')) return 'grass'; // Use grass color for leaves
+    // Grass and dirt variants
+    if (blockName.includes('grass_block')) return 'grass';
+    if (blockName.includes('dirt') || blockName.includes('coarse_dirt') || blockName.includes('podzol') || blockName.includes('mycelium')) return 'dirt';
+    
+    // Cobblestone (before stone to avoid matching 'stone' in 'cobblestone')
+    if (blockName.includes('cobblestone') || blockName.includes('mossy_cobblestone')) return 'cobblestone';
+    
+    // Stone variants
+    if (blockName.includes('stone') || blockName.includes('andesite') || blockName.includes('diorite') || 
+        blockName.includes('granite') || blockName.includes('deepslate')) return 'stone';
+    
+    // Gravel
+    if (blockName.includes('gravel')) return 'gravel';
+    
+    // Sand variants
+    if (blockName.includes('sand')) return 'sand';
+    
+    // Water and ice
+    if (blockName.includes('water') || blockName.includes('ice')) return 'water';
+    
+    // Wood variants (logs specifically)
+    if (blockName.includes('_log') || blockName.includes('stripped_') && blockName.includes('log')) return 'wood';
+    
+    // Planks
+    if (blockName.includes('planks')) return 'planks';
+    
+    // Leaves (with transparency)
+    if (blockName.includes('leaves')) return 'leaves';
+    
+    // Snow
+    if (blockName.includes('snow')) return 'snow';
+    
+    // Ores (map to stone)
+    if (blockName.includes('_ore') || blockName.includes('coal_block') || blockName.includes('iron_block')) return 'stone';
     
     // Default to stone for unknown blocks
     return 'stone';

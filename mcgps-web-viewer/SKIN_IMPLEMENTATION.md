@@ -161,3 +161,38 @@ Constants in `SkinService.js`:
 - `CACHE_DURATION_MS` - 6 hours (21,600,000 ms)
 - `FETCH_TIMEOUT_MS` - 5 seconds (5,000 ms)
 - `SESSION_SERVER_URL` - Mojang endpoint
+
+---
+
+## Block Texture Improvements (Jan 2, 2026)
+
+### Enhanced Block Type Support
+
+Added comprehensive block type recognition and proper texture mapping:
+
+**New Block Types:**
+-  **Cobblestone** - proper cobblestone texture (was mapped to generic stone)
+-  **Gravel** - dedicated gravel texture  
+-  **Oak Logs** - with top/side different textures (bark on sides, rings on top/bottom)
+-  **Oak Planks** - wooden plank texture
+-  **Oak Leaves** - transparent leaf texture with proper alpha channel
+-  **Snow** - bright white snow texture
+-  **Sand** - now properly mapped to sand texture (was incorrectly mapped to stone)
+
+**Improved Block Mapping Logic:**
+- Checks for cobblestone BEFORE stone to avoid substring matching issues
+- Separates _log blocks from generic wood/planks  
+- Proper leaves recognition with transparency
+- Dedicated snow texture
+- All ores map to stone appearance
+
+**Frontend Improvements:**
+- Added 7 new textures from Minecraft 1.20.4 assets
+- Multi-material support for logs (different top vs. side)
+- Transparency for leaves (alpha: 0.9) and water (alpha: 0.6)
+- NearestFilter for authentic pixelated look
+
+**Performance:**
+- Multi-material blocks (grass, wood) rendered individually
+- Single-material blocks use geometry merging
+- Face culling active to skip hidden faces

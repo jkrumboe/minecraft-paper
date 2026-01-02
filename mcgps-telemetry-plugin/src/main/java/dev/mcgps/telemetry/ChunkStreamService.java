@@ -183,25 +183,36 @@ public class ChunkStreamService {
     private String getSimplifiedBlockType(Material material) {
         String name = material.name().toLowerCase();
         
-        // Grass and vegetation
-        if (name.contains("grass_block") || name.contains("grass")) return "grass";
-        if (name.contains("leaves") || name.contains("azalea")) return "grass";
+        // Water and lava
+        if (name.contains("water")) return "water";
+        if (name.contains("lava")) return "stone";
+        
+        // Grass blocks
+        if (name.equals("grass_block")) return "grass";
+        
+        // Vegetation and leaves (treat as grass for green color)
+        if (name.contains("leaves") || name.contains("azalea") || 
+            name.contains("grass") && !name.contains("grass_block")) return "grass";
         
         // Dirt and soil
-        if (name.contains("dirt") || name.contains("podzol") || name.contains("coarse")) return "dirt";
-        if (name.contains("rooted")) return "dirt";
+        if (name.contains("dirt") || name.contains("podzol") || 
+            name.contains("coarse") || name.contains("rooted")) return "dirt";
+        
+        // Sand
+        if (name.contains("sand")) return "sand";
+        
+        // Gravel
+        if (name.contains("gravel")) return "stone";
+        
+        // Wood blocks (logs, planks, stripped)
+        if (name.contains("log") || name.contains("wood") || 
+            name.contains("planks") || name.contains("stripped")) return "wood";
         
         // Stone variants
         if (name.contains("stone") || name.contains("andesite") || 
             name.contains("diorite") || name.contains("granite") ||
-            name.contains("cobble") || name.contains("bedrock")) return "stone";
-        
-        // Sand and gravel
-        if (name.contains("sand") || name.contains("gravel")) return "stone";
-        
-        // Wood blocks (logs and planks)
-        if (name.contains("log") || name.contains("wood") || 
-            name.contains("planks") || name.contains("stripped")) return "dirt";
+            name.contains("cobble") || name.contains("bedrock") ||
+            name.contains("ore")) return "stone";
         
         // Default to stone for other solid blocks
         return "stone";
