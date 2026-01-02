@@ -15,32 +15,10 @@
 
 const express = require('express');
 const { spawn } = require('child_process');
-const path = require('path');
-const fs = require('fs');
-const { promisify } = require('util');
-const mcData = require('minecraft-data')('1.20.4');
-const World = require('prismarine-world')(mcData.version.minecraftVersion);
-const Anvil = require('prismarine-provider-anvil').Anvil(mcData.version.minecraftVersion);
 const skinService = require('./SkinService');
-
-const readFile = promisify(fs.readFile);
 
 const app = express();
 const PORT = 3000;
-
-// Minecraft world data path (mounted from Docker)
-const WORLD_PATH = path.join(__dirname, '..', 'data', 'world');
-
-// Initialize Anvil world reader
-let anvilWorld = null;
-try {
-    const anvilProvider = new Anvil(WORLD_PATH);
-    anvilWorld = new World((x, z) => anvilProvider.load(x, z), null);
-    console.log('✅ Anvil world reader initialized for path:', WORLD_PATH);
-} catch (error) {
-    console.error('⚠️  Failed to initialize Anvil reader:', error.message);
-    console.error(error.stack);
-}
 
 // Store recent player positions (keep last 100 per player)
 const playerData = new Map();
@@ -354,125 +332,22 @@ app.get('/api/players/:uuid/history', (req, res) => {
 });
 
 /**
- * API endpoint to get block data around a position
- * Returns a simplified chunk of blocks for rendering
- * Now also returns streamed chunk data if available
+ * API endpoint to get cached chunk data (legacy endpoint, mainly for debugging)
  */
-app.get('/api/blocks', async (req, res) => {
-    try {
-        const x = parseInt(req.query.x) || 0;
-        const z = parseInt(req.query.z) || 0;
-        const radius = parseInt(req.query.radius) || 32;
-        
-        // First, check if we have streamed chunk data for any player
-        // Use the most recent chunk data available
-        let streamedBlocks = [];
-        let latestChunkData = null;
-        let latestTimestamp = 0;
-        
-        chunkData.forEach((data, uuid) => {
-            if (data.ts > latestTimestamp) {
-                latestTimestamp = data.ts;
-                latestChunkData = data;
-            }
+app.get('/api/blocks', (req, res) => {
+    // Return cached chunk data if available
+    if (lastChunkData && lastChunkData.blocks.length > 0) {
+        return res.json({ 
+            blocks: lastChunkData.blocks, 
+            center: lastChunkData.center, 
+            radius: lastChunkData.radius, 
+            source: 'stream' 
         });
-        
-        if (latestChunkData && latestChunkData.blocks.length > 0) {
-            console.log(`Returning ${latestChunkData.blocks.length} blocks from streamed chunk data (center: ${latestChunkData.center.x}, ${latestChunkData.center.z})`);
-            return res.json({ 
-                blocks: latestChunkData.blocks, 
-                center: latestChunkData.center, 
-                radius: latestChunkData.radius, 
-                source: 'stream' 
-            });
-        }
-        
-        // Fallback to simplified terrain if no streamed data available
-        console.log('No streamed chunk data available, using fallback terrain');
-        const blocks = generateSimplifiedTerrain(x, z, radius);
-        res.json({ blocks, center: { x, z }, radius, source: 'generated' });
-    } catch (error) {
-        console.error('Error getting block data:', error);
-        // Fallback to simplified terrain
-        const blocks = generateSimplifiedTerrain(x, z, radius);
-        res.json({ blocks, center: { x, z }, radius, source: 'generated' });
     }
+    
+    // No data available
+    res.json({ blocks: [], center: { x: 0, z: 0 }, radius: 0, source: 'none' });
 });
-
-/**
- * Read actual block data from Minecraft world using Anvil format
- */
-async function readRealWorldBlocks(centerX, centerZ, radius) {
-    const blocks = [];
-    const startX = Math.floor(centerX - radius);
-    const endX = Math.floor(centerX + radius);
-    const startZ = Math.floor(centerZ - radius);
-    const endZ = Math.floor(centerZ + radius);
-    
-    console.log(`Reading world blocks from (${startX}, ${startZ}) to (${endX}, ${endZ})`);
-    
-    // Sample blocks more sparsely for performance (every 2 blocks)
-    const step = 2;
-    let errorCount = 0;
-    let checkedPositions = 0;
-    
-    for (let x = startX; x <= endX; x += step) {
-        for (let z = startZ; z <= endZ; z += step) {
-            try {
-                checkedPositions++;
-                // Find the top solid block at this X, Z position
-                let foundSurface = false;
-                
-                // Start from a reasonable height and scan down
-                for (let y = 120; y >= 50 && !foundSurface; y--) {
-                    try {
-                        // Use the correct prismarine-world API
-                        const block = await anvilWorld.getBlock({ x, y, z });
-                        
-                        if (block && block.name !== 'air') {
-                            // Found a solid block
-                            const blockType = getSimplifiedBlockType(block.name);
-                            
-                            // Add the surface block
-                            blocks.push({ x, y, z, type: blockType });
-                            
-                            // Add a few blocks below for depth
-                            for (let depth = 1; depth <= 2; depth++) {
-                                const belowY = y - depth;
-                                if (belowY >= 0) {
-                                    try {
-                                        const belowBlock = await anvilWorld.getBlock({ x, y: belowY, z });
-                                        if (belowBlock && belowBlock.name !== 'air') {
-                                            const belowType = getSimplifiedBlockType(belowBlock.name);
-                                            blocks.push({ x, y: belowY, z, type: belowType });
-                                        }
-                                    } catch (e) {
-                                        // Skip this depth layer
-                                    }
-                                }
-                            }
-                            
-                            foundSurface = true;
-                        }
-                    } catch (e) {
-                        // Skip this Y level
-                        errorCount++;
-                        if (errorCount < 3) {
-                            console.log(`Error reading block at (${x}, ${y}, ${z}):`, e.message);
-                        }
-                    }
-                }
-            } catch (error) {
-                // Skip blocks that fail to load
-                errorCount++;
-                continue;
-            }
-        }
-    }
-    
-    console.log(`Checked ${checkedPositions} positions, found ${blocks.length} real blocks from world (${errorCount} errors)`);
-    return blocks;
-}
 
 /**
  * Simplify Minecraft block types to basic materials for rendering
@@ -515,65 +390,6 @@ function getSimplifiedBlockType(blockName) {
     
     // Default to stone for unknown blocks
     return 'stone';
-}
-
-/**
- * Generate simplified terrain for fallback
- * Used when real world data is not available
- */
-function generateSimplifiedTerrain(centerX, centerZ, radius) {
-    const blocks = [];
-    const startX = Math.floor(centerX - radius);
-    const endX = Math.floor(centerX + radius);
-    const startZ = Math.floor(centerZ - radius);
-    const endZ = Math.floor(centerZ + radius);
-    
-    // Use player positions to determine ground height if available
-    let averageHeight = 70; // Default Minecraft ground level
-    if (playerData.size > 0) {
-        let totalY = 0;
-        let count = 0;
-        playerData.forEach((history) => {
-            if (history.length > 0) {
-                const lastPos = history[history.length - 1];
-                totalY += lastPos.y;
-                count++;
-            }
-        });
-        if (count > 0) {
-            averageHeight = Math.floor(totalY / count);
-        }
-    }
-    
-    // Create terrain with continuous blocks - no gaps
-    for (let x = startX; x <= endX; x++) {
-        for (let z = startZ; z <= endZ; z++) {
-            // More natural terrain using multiple noise octaves
-            const noise1 = Math.sin(x * 0.05) * Math.cos(z * 0.05) * 3;
-            const noise2 = Math.sin(x * 0.2) * Math.cos(z * 0.2) * 1;
-            const height = Math.floor(averageHeight - 1 + noise1 + noise2);
-            
-            // Add grass block at surface
-            blocks.push({
-                x: x,
-                y: height,
-                z: z,
-                type: 'grass'
-            });
-            
-            // Add dirt layers below (only 2 layers for performance)
-            for (let y = height - 1; y >= height - 2; y--) {
-                blocks.push({
-                    x: x,
-                    y: y,
-                    z: z,
-                    type: 'dirt'
-                });
-            }
-        }
-    }
-    
-    return blocks;
 }
 
 // Start server
