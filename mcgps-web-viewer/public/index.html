@@ -61,9 +61,12 @@
         // Apply initial rotation
         camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        const renderer = new THREE.WebGLRenderer({ 
+            antialias: false,  // Disable for performance
+            powerPreference: 'high-performance'
+        });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio
         document.getElementById('canvas-container').appendChild(renderer.domElement);
 
         // Lighting
@@ -150,182 +153,284 @@
                 `${Math.floor(camera.position.x)}, ${Math.floor(camera.position.y)}, ${Math.floor(camera.position.z)}`;
         }
 
-        // Simple color materials for testing
+        // Simple color materials - ALL single materials for performance
+        // (Multi-material creates separate draw calls per block - very slow)
         const materials = {
-            grass: [
-                new THREE.MeshLambertMaterial({ color: 0x7cbd6b }), // grass side
-                new THREE.MeshLambertMaterial({ color: 0x7cbd6b }),
-                new THREE.MeshLambertMaterial({ color: 0x5ca03b }), // grass top (darker green)
-                new THREE.MeshLambertMaterial({ color: 0x8b6f47 }), // dirt bottom
-                new THREE.MeshLambertMaterial({ color: 0x7cbd6b }),
-                new THREE.MeshLambertMaterial({ color: 0x7cbd6b })
-            ],
+            grass: new THREE.MeshLambertMaterial({ color: 0x5ca03b }),
             dirt: new THREE.MeshLambertMaterial({ color: 0x8b6f47 }),
             stone: new THREE.MeshLambertMaterial({ color: 0x7f7f7f }),
             cobblestone: new THREE.MeshLambertMaterial({ color: 0x636363 }),
             sand: new THREE.MeshLambertMaterial({ color: 0xdbd3a0 }),
             gravel: new THREE.MeshLambertMaterial({ color: 0x7a7a7a }),
             water: new THREE.MeshLambertMaterial({ color: 0x3f76e4, transparent: true, opacity: 0.7 }),
-            wood: [
-                new THREE.MeshLambertMaterial({ color: 0x6f5436 }), // log side
-                new THREE.MeshLambertMaterial({ color: 0x6f5436 }),
-                new THREE.MeshLambertMaterial({ color: 0x9b7653 }), // log top
-                new THREE.MeshLambertMaterial({ color: 0x9b7653 }),
-                new THREE.MeshLambertMaterial({ color: 0x6f5436 }),
-                new THREE.MeshLambertMaterial({ color: 0x6f5436 })
-            ],
+            wood: new THREE.MeshLambertMaterial({ color: 0x6f5436 }),
             leaves: new THREE.MeshLambertMaterial({ color: 0x3a8d2a }),
             planks: new THREE.MeshLambertMaterial({ color: 0x9d804f }),
             snow: new THREE.MeshLambertMaterial({ color: 0xfffafa })
         };
 
-        console.log('✓ Using simple color materials');
+        console.log('✓ Using optimized single-color materials');
 
-        // Block rendering
-        const blockGroup = new THREE.Group();
-        scene.add(blockGroup);
+        // Chunk-based rendering system (like Minecraft)
+        const CHUNK_SIZE = 16;
+        const chunkMeshes = new Map(); // Map<chunkKey, THREE.Group>
+        const chunkGroup = new THREE.Group();
+        scene.add(chunkGroup);
+        
         const players = new Map();
         let pendingBlocks = null;
+        
+        // Global block map for incremental updates
+        let globalBlockMap = new Map();
+        let globalBlocks = [];
+        let needsRebuild = false;
+        
+        // Pre-computed face vertex data for speed
+        const FACE_DATA = {
+            px: { verts: [0.5,-0.5,-0.5, 0.5,0.5,-0.5, 0.5,0.5,0.5, 0.5,-0.5,0.5], norm: [1,0,0] },
+            nx: { verts: [-0.5,-0.5,0.5, -0.5,0.5,0.5, -0.5,0.5,-0.5, -0.5,-0.5,-0.5], norm: [-1,0,0] },
+            py: { verts: [-0.5,0.5,-0.5, -0.5,0.5,0.5, 0.5,0.5,0.5, 0.5,0.5,-0.5], norm: [0,1,0] },
+            ny: { verts: [-0.5,-0.5,-0.5, 0.5,-0.5,-0.5, 0.5,-0.5,0.5, -0.5,-0.5,0.5], norm: [0,-1,0] },
+            pz: { verts: [-0.5,-0.5,0.5, 0.5,-0.5,0.5, 0.5,0.5,0.5, -0.5,0.5,0.5], norm: [0,0,1] },
+            nz: { verts: [0.5,-0.5,-0.5, -0.5,-0.5,-0.5, -0.5,0.5,-0.5, 0.5,0.5,-0.5], norm: [0,0,-1] }
+        };
+        
+        // Frustum for culling
+        const frustum = new THREE.Frustum();
+        const projScreenMatrix = new THREE.Matrix4();
 
-        // Render blocks directly (no texture loading needed)
-        function renderBlocks(blocks) {
-            blockGroup.clear();
-            
-            // Debug: log unique block types
-            const uniqueTypes = new Set(blocks.map(b => b.type));
-            const typeCounts = {};
-            blocks.forEach(b => {
-                typeCounts[b.type] = (typeCounts[b.type] || 0) + 1;
-            });
-            console.log('Block types received:', Array.from(uniqueTypes));
-            console.log('Block counts by type:', typeCounts);
-            
-            const blockMap = new Map();
-            blocks.forEach(b => blockMap.set(`${b.x},${b.y},${b.z}`, b.type));
-            
-            const hasBlock = (x, y, z) => blockMap.has(`${x},${y},${z}`);
-            
-            const geometryByType = {};
+        // Get chunk key from world coordinates
+        function getChunkKey(x, y, z) {
+            const cx = Math.floor(x / CHUNK_SIZE);
+            const cy = Math.floor(y / CHUNK_SIZE);
+            const cz = Math.floor(z / CHUNK_SIZE);
+            return `${cx},${cy},${cz}`;
+        }
+
+        // Build optimized geometry for a chunk
+        function buildChunkMesh(blocks, blockMap) {
+            // Group blocks by type for batching
+            const byType = {};
             
             blocks.forEach(({ x, y, z, type = 'stone' }) => {
-                const faces = {
-                    px: !hasBlock(x + 1, y, z),
-                    nx: !hasBlock(x - 1, y, z),
-                    py: !hasBlock(x, y + 1, z),
-                    ny: !hasBlock(x, y - 1, z),
-                    pz: !hasBlock(x, y, z + 1),
-                    nz: !hasBlock(x, y, z - 1)
-                };
+                // Determine visible faces (occlusion culling)
+                const faces = [];
+                if (!blockMap.has(`${x+1},${y},${z}`)) faces.push('px');
+                if (!blockMap.has(`${x-1},${y},${z}`)) faces.push('nx');
+                if (!blockMap.has(`${x},${y+1},${z}`)) faces.push('py');
+                if (!blockMap.has(`${x},${y-1},${z}`)) faces.push('ny');
+                if (!blockMap.has(`${x},${y},${z+1}`)) faces.push('pz');
+                if (!blockMap.has(`${x},${y},${z-1}`)) faces.push('nz');
                 
-                if (!Object.values(faces).some(v => v)) return;
+                if (faces.length === 0) return; // Fully occluded
                 
-                if (!geometryByType[type]) geometryByType[type] = [];
-                geometryByType[type].push({ x, y, z, faces });
+                if (!byType[type]) byType[type] = [];
+                byType[type].push({ x, y, z, faces });
             });
             
-            Object.keys(geometryByType).forEach(type => {
-                const data = geometryByType[type];
+            const group = new THREE.Group();
+            
+            // Build merged geometry per material type
+            Object.keys(byType).forEach(type => {
+                const data = byType[type];
                 const mat = materials[type] || materials.stone;
-                const isMultiMaterial = Array.isArray(mat);
                 
-                // Debug: log if material not found
-                if (!materials[type]) {
-                    console.warn(`No material for type '${type}', using stone`);
-                }
+                // Merge all blocks of this type into one geometry
+                const positions = [];
+                const normals = [];
+                const indices = [];
+                let vertexOffset = 0;
                 
-                if (isMultiMaterial) {
-                    // Multi-material (grass, wood) - need material groups
-                    data.forEach(d => {
-                        const geo = createCulledBox(d.faces, true);
-                        const mesh = new THREE.Mesh(geo, mat);
-                        mesh.position.set(d.x, d.y, d.z);
-                        blockGroup.add(mesh);
+                data.forEach(({ x, y, z, faces }) => {
+                    faces.forEach(faceKey => {
+                        const face = FACE_DATA[faceKey];
+                        // Add translated vertices
+                        for (let i = 0; i < 12; i += 3) {
+                            positions.push(
+                                face.verts[i] + x,
+                                face.verts[i + 1] + y,
+                                face.verts[i + 2] + z
+                            );
+                        }
+                        // Add normals (4 vertices per face)
+                        for (let i = 0; i < 4; i++) {
+                            normals.push(face.norm[0], face.norm[1], face.norm[2]);
+                        }
+                        // Add indices (2 triangles per face)
+                        indices.push(
+                            vertexOffset, vertexOffset + 1, vertexOffset + 2,
+                            vertexOffset, vertexOffset + 2, vertexOffset + 3
+                        );
+                        vertexOffset += 4;
                     });
+                });
+                
+                if (positions.length === 0) return;
+                
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+                geometry.setIndex(indices);
+                geometry.computeBoundingSphere();
+                
+                const mesh = new THREE.Mesh(geometry, mat);
+                mesh.matrixAutoUpdate = false; // Performance: skip matrix calc
+                mesh.updateMatrix();
+                group.add(mesh);
+            });
+            
+            // Compute bounding sphere for frustum culling
+            const box = new THREE.Box3();
+            group.children.forEach(mesh => {
+                if (mesh.geometry.boundingBox === null) {
+                    mesh.geometry.computeBoundingBox();
+                }
+                box.union(mesh.geometry.boundingBox);
+            });
+            group.userData.boundingSphere = new THREE.Sphere();
+            box.getBoundingSphere(group.userData.boundingSphere);
+            
+            return group;
+        }
+
+        // Render blocks using chunk system
+        function renderBlocks(blocks) {
+            console.time('renderBlocks');
+            
+            // Store globally for incremental updates
+            globalBlocks = blocks.slice();
+            globalBlockMap.clear();
+            blocks.forEach(b => globalBlockMap.set(`${b.x},${b.y},${b.z}`, b.type));
+            
+            rebuildAllChunks();
+            
+            console.timeEnd('renderBlocks');
+            console.log(`Rendered ${blocks.length} blocks in ${chunkMeshes.size} chunks`);
+        }
+        
+        // Rebuild all chunk meshes from globalBlocks
+        function rebuildAllChunks() {
+            // Clear old chunks
+            chunkMeshes.forEach(mesh => {
+                chunkGroup.remove(mesh);
+                mesh.traverse(obj => {
+                    if (obj.geometry) obj.geometry.dispose();
+                });
+            });
+            chunkMeshes.clear();
+            
+            // Group blocks into chunks
+            const chunkBlocks = new Map();
+            globalBlocks.forEach(block => {
+                const key = getChunkKey(block.x, block.y, block.z);
+                if (!chunkBlocks.has(key)) chunkBlocks.set(key, []);
+                chunkBlocks.get(key).push(block);
+            });
+            
+            // Build mesh for each chunk
+            chunkBlocks.forEach((chunkBlockList, key) => {
+                const mesh = buildChunkMesh(chunkBlockList, globalBlockMap);
+                const [cx, cy, cz] = key.split(',').map(Number);
+                mesh.position.set(0, 0, 0);
+                mesh.userData.chunkCenter = new THREE.Vector3(
+                    (cx + 0.5) * CHUNK_SIZE,
+                    (cy + 0.5) * CHUNK_SIZE,
+                    (cz + 0.5) * CHUNK_SIZE
+                );
+                chunkMeshes.set(key, mesh);
+                chunkGroup.add(mesh);
+            });
+            
+            document.getElementById('block-count').textContent = `${globalBlocks.length} (${chunkMeshes.size} chunks)`;
+        }
+        
+        // Rebuild only affected chunks (for incremental updates)
+        function rebuildChunk(chunkKey) {
+            // Remove old chunk mesh if exists
+            if (chunkMeshes.has(chunkKey)) {
+                const oldMesh = chunkMeshes.get(chunkKey);
+                chunkGroup.remove(oldMesh);
+                oldMesh.traverse(obj => {
+                    if (obj.geometry) obj.geometry.dispose();
+                });
+                chunkMeshes.delete(chunkKey);
+            }
+            
+            // Get blocks in this chunk
+            const [cx, cy, cz] = chunkKey.split(',').map(Number);
+            const chunkBlockList = globalBlocks.filter(b => 
+                Math.floor(b.x / CHUNK_SIZE) === cx &&
+                Math.floor(b.y / CHUNK_SIZE) === cy &&
+                Math.floor(b.z / CHUNK_SIZE) === cz
+            );
+            
+            if (chunkBlockList.length === 0) return;
+            
+            // Rebuild mesh
+            const mesh = buildChunkMesh(chunkBlockList, globalBlockMap);
+            mesh.position.set(0, 0, 0);
+            mesh.userData.chunkCenter = new THREE.Vector3(
+                (cx + 0.5) * CHUNK_SIZE,
+                (cy + 0.5) * CHUNK_SIZE,
+                (cz + 0.5) * CHUNK_SIZE
+            );
+            chunkMeshes.set(chunkKey, mesh);
+            chunkGroup.add(mesh);
+        }
+        
+        // Handle real-time block changes
+        function handleBlockChange(data) {
+            const { type, x, y, z, blockType } = data;
+            const key = `${x},${y},${z}`;
+            const chunkKey = getChunkKey(x, y, z);
+            
+            // Get adjacent chunk keys that might need updating
+            const adjacentChunks = new Set([chunkKey]);
+            [
+                [x+1, y, z], [x-1, y, z],
+                [x, y+1, z], [x, y-1, z],
+                [x, y, z+1], [x, y, z-1]
+            ].forEach(([ax, ay, az]) => {
+                adjacentChunks.add(getChunkKey(ax, ay, az));
+            });
+            
+            if (type === 'block_break') {
+                // Remove block from global data
+                globalBlockMap.delete(key);
+                globalBlocks = globalBlocks.filter(b => !(b.x === x && b.y === y && b.z === z));
+                console.log(`Block broken at (${x}, ${y}, ${z})`);
+            } else if (type === 'block_place') {
+                // Add block to global data
+                if (!globalBlockMap.has(key)) {
+                    globalBlocks.push({ x, y, z, type: blockType });
+                    globalBlockMap.set(key, blockType);
+                    console.log(`Block placed at (${x}, ${y}, ${z}): ${blockType}`);
+                }
+            }
+            
+            // Rebuild affected chunks
+            adjacentChunks.forEach(ck => rebuildChunk(ck));
+            
+            document.getElementById('block-count').textContent = `${globalBlocks.length} (${chunkMeshes.size} chunks)`;
+        }
+
+        // Frustum culling update (called each frame)
+        function updateFrustumCulling() {
+            projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+            frustum.setFromProjectionMatrix(projScreenMatrix);
+            
+            let visibleChunks = 0;
+            chunkMeshes.forEach((mesh) => {
+                if (mesh.userData.boundingSphere) {
+                    const sphere = mesh.userData.boundingSphere.clone();
+                    sphere.center.add(mesh.position);
+                    mesh.visible = frustum.intersectsSphere(sphere);
                 } else {
-                    // Single material - merge for performance
-                    const merged = new THREE.BufferGeometry();
-                    const positions = [], normals = [], uvs = [], indices = [];
-                    let offset = 0;
-                    
-                    data.forEach(d => {
-                        const geo = createCulledBox(d.faces, false);
-                        geo.translate(d.x, d.y, d.z);
-                        
-                        const pos = geo.getAttribute('position');
-                        const norm = geo.getAttribute('normal');
-                        const uv = geo.getAttribute('uv');
-                        const idx = geo.getIndex();
-                        
-                        for (let i = 0; i < pos.count; i++) {
-                            positions.push(pos.getX(i), pos.getY(i), pos.getZ(i));
-                            normals.push(norm.getX(i), norm.getY(i), norm.getZ(i));
-                            uvs.push(uv.getX(i), uv.getY(i));
-                        }
-                        
-                        for (let i = 0; i < idx.count; i++) {
-                            indices.push(idx.getX(i) + offset);
-                        }
-                        
-                        offset += pos.count;
-                        geo.dispose();
-                    });
-                    
-                    merged.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-                    merged.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-                    merged.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-                    merged.setIndex(indices);
-                    
-                    blockGroup.add(new THREE.Mesh(merged, mat));
+                    mesh.visible = true;
                 }
+                if (mesh.visible) visibleChunks++;
             });
-            
-            document.getElementById('block-count').textContent = blocks.length;
-            console.log(`Rendered ${blocks.length} blocks`);
         }
-
-        // Multi-material order: [+x, -x, +y, -y, +z, -z] = [right, left, top, bottom, front, back]
-        function createCulledBox(faces, useMultiMaterial = false) {
-            const geo = new THREE.BufferGeometry();
-            const positions = [], normals = [], uvs = [], indices = [];
-            let v = 0;
-            let groupStart = 0;
-            
-            // Face definitions with material index for multi-material
-            // Material indices: 0=+x, 1=-x, 2=+y, 3=-y, 4=+z, 5=-z
-            const faceData = [
-                { key: 'px', verts: [0.5,-0.5,-0.5, 0.5,0.5,-0.5, 0.5,0.5,0.5, 0.5,-0.5,0.5], norm: [1,0,0], uv: [0,1, 0,0, 1,0, 1,1], matIdx: 0 },
-                { key: 'nx', verts: [-0.5,-0.5,0.5, -0.5,0.5,0.5, -0.5,0.5,-0.5, -0.5,-0.5,-0.5], norm: [-1,0,0], uv: [0,1, 0,0, 1,0, 1,1], matIdx: 1 },
-                { key: 'py', verts: [-0.5,0.5,-0.5, -0.5,0.5,0.5, 0.5,0.5,0.5, 0.5,0.5,-0.5], norm: [0,1,0], uv: [0,1, 0,0, 1,0, 1,1], matIdx: 2 },
-                { key: 'ny', verts: [-0.5,-0.5,-0.5, 0.5,-0.5,-0.5, 0.5,-0.5,0.5, -0.5,-0.5,0.5], norm: [0,-1,0], uv: [0,1, 1,1, 1,0, 0,0], matIdx: 3 },
-                { key: 'pz', verts: [-0.5,-0.5,0.5, 0.5,-0.5,0.5, 0.5,0.5,0.5, -0.5,0.5,0.5], norm: [0,0,1], uv: [0,1, 1,1, 1,0, 0,0], matIdx: 4 },
-                { key: 'nz', verts: [0.5,-0.5,-0.5, -0.5,-0.5,-0.5, -0.5,0.5,-0.5, 0.5,0.5,-0.5], norm: [0,0,-1], uv: [0,1, 1,1, 1,0, 0,0], matIdx: 5 }
-            ];
-            
-            faceData.forEach(face => {
-                if (!faces[face.key]) return;
-                
-                positions.push(...face.verts);
-                normals.push(...Array(4).fill(face.norm).flat());
-                uvs.push(...face.uv);
-                indices.push(v, v + 1, v + 2, v, v + 2, v + 3);
-                
-                if (useMultiMaterial) {
-                    // Add a group for this face (6 indices per face = 2 triangles)
-                    geo.addGroup(groupStart, 6, face.matIdx);
-                    groupStart += 6;
-                }
-                
-                v += 4;
-            });
-            
-            geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-            geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-            geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-            geo.setIndex(indices);
-            
-            return geo;
-        }
-
         function updatePlayer(data) {
             const { uuid, name, x, y, z } = data;
             
@@ -403,6 +508,9 @@
                 Object.values(msg.players).forEach(updatePlayer);
             } else if (msg.type === 'update') {
                 updatePlayer(msg.player);
+            } else if (msg.type === 'block_change') {
+                // Real-time block update
+                handleBlockChange(msg.data);
             } else if (msg.type === 'chunks') {
                 console.log(`Received ${msg.data.blocks.length} blocks`);
                 renderBlocks(msg.data.blocks);
@@ -466,6 +574,7 @@
             }
             
             updateCamera();
+            updateFrustumCulling(); // Frustum cull chunks
             renderer.render(scene, camera);
         }
         

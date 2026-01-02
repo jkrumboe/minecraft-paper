@@ -151,6 +151,20 @@ function startLogTailing() {
  * Parse a log line and extract telemetry JSON
  */
 function parseTelemetryLine(line) {
+    // Check for block change events (MCGPS_BLOCK: prefix)
+    if (line.includes('MCGPS_BLOCK:')) {
+        const blockJsonStart = line.indexOf('MCGPS_BLOCK:') + 12;
+        const blockJsonStr = line.substring(blockJsonStart).trim();
+        try {
+            const blockData = JSON.parse(blockJsonStr);
+            console.log(`Block ${blockData.type}: (${blockData.x}, ${blockData.y}, ${blockData.z}) by ${blockData.player}`);
+            broadcastBlockChange(blockData);
+            return;
+        } catch (err) {
+            // Invalid block JSON
+        }
+    }
+    
     // Look for JSON objects in the line - handle both small and large JSON
     // Match opening brace to closing brace, handling nested structures
     const jsonStart = line.indexOf('{');
@@ -193,6 +207,21 @@ function parseTelemetryLine(line) {
     } catch (err) {
         // Not valid JSON, ignore
     }
+}
+
+/**
+ * Broadcast block change to all connected clients
+ */
+function broadcastBlockChange(data) {
+    const message = `data: ${JSON.stringify({ type: 'block_change', data })}\n\n`;
+    
+    clients.forEach(client => {
+        try {
+            client.write(message);
+        } catch (err) {
+            clients.delete(client);
+        }
+    });
 }
 
 /**

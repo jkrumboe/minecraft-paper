@@ -16,6 +16,7 @@ public class McGpsTelemetryPlugin extends JavaPlugin {
     
     private TelemetryService telemetryService;
     private ChunkStreamService chunkStreamService;
+    private BlockChangeListener blockChangeListener;
     
     @Override
     public void onEnable() {
@@ -23,13 +24,17 @@ public class McGpsTelemetryPlugin extends JavaPlugin {
         telemetryService = new TelemetryService(this);
         chunkStreamService = new ChunkStreamService(this);
         
+        // Register block change listener for real-time updates
+        blockChangeListener = new BlockChangeListener(this);
+        getServer().getPluginManager().registerEvents(blockChangeListener, this);
+        
         // Start the telemetry task (runs every 2 ticks = 10 times per second)
         telemetryService.start();
         
         // Start chunk streaming (runs every 3 seconds)
         chunkStreamService.start();
         
-        getLogger().info("Telemetry plugin enabled - tracking at 10Hz with chunk streaming");
+        getLogger().info("Telemetry plugin enabled - tracking at 10Hz with chunk streaming and real-time block updates");
     }
     
     @Override
