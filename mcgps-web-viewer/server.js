@@ -21,6 +21,7 @@ const { promisify } = require('util');
 const mcData = require('minecraft-data')('1.20.4');
 const World = require('prismarine-world')(mcData.version.minecraftVersion);
 const Anvil = require('prismarine-provider-anvil').Anvil(mcData.version.minecraftVersion);
+const skinService = require('./SkinService');
 
 const readFile = promisify(fs.readFile);
 
@@ -47,6 +48,9 @@ const MAX_HISTORY = 100;
 
 // Store chunk data per player
 const chunkData = new Map();
+
+// Store player skin data (resolved from Mojang API)
+const playerSkins = new Map();
 
 // Active SSE clients
 const clients = new Set();
@@ -198,11 +202,35 @@ function parseTelemetryLine(line) {
 /**
  * Store telemetry in memory (limited history)
  */
-function storeTelemetry(data) {
+async function storeTelemetry(data) {
     const uuid = data.uuid;
     
     if (!playerData.has(uuid)) {
         playerData.set(uuid, []);
+        
+        // First time seeing this player - resolve their skin
+        if (!playerSkins.has(uuid)) {
+            console.log(`🎨 Resolving skin for new player ${data.name || uuid}...`);
+            try {
+                const skinData = await skinService.getSkin(uuid);
+                playerSkins.set(uuid, skinData);
+                
+                // Attach skin data to this telemetry update
+                data.skinUrl = skinData.skinUrl;
+                data.model = skinData.model;
+                
+                console.log(`✅ Skin resolved for ${data.name || uuid}: ${skinData.model} model`);
+            } catch (error) {
+                console.error(`❌ Failed to resolve skin for ${uuid}:`, error.message);
+            }
+        }
+    }
+    
+    // Always attach skin data if available
+    const skinData = playerSkins.get(uuid);
+    if (skinData) {
+        data.skinUrl = skinData.skinUrl;
+        data.model = skinData.model;
     }
     
     const history = playerData.get(uuid);
@@ -251,11 +279,43 @@ app.get('/api/players', (req, res) => {
     
     playerData.forEach((history, uuid) => {
         if (history.length > 0) {
-            result[uuid] = history[history.length - 1];
+            const playerInfo = history[history.length - 1];
+            
+            // Attach skin data if available
+            const skinData = playerSkins.get(uuid);
+            if (skinData) {
+                playerInfo.skinUrl = skinData.skinUrl;
+                playerInfo.model = skinData.model;
+            }
+            
+            result[uuid] = playerInfo;
         }
     });
     
     res.json(result);
+});
+
+/**
+ * API endpoint to get skin data for a specific player
+ */
+app.get('/api/players/:uuid/skin', async (req, res) => {
+    const uuid = req.params.uuid;
+    
+    try {
+        // Check cache first
+        let skinData = playerSkins.get(uuid);
+        
+        if (!skinData) {
+            // Resolve from Mojang if not cached
+            skinData = await skinService.getSkin(uuid);
+            playerSkins.set(uuid, skinData);
+        }
+        
+        res.json(skinData);
+    } catch (error) {
+        console.error(`Error resolving skin for ${uuid}:`, error);
+        res.status(500).json({ error: 'Failed to resolve skin' });
+    }
 });
 
 /**
@@ -471,12 +531,20 @@ app.listen(PORT, () => {
     console.log();
     console.log(`🌐 Server running at: http://localhost:${PORT}`);
     console.log(`📊 Open in browser to see real-time 3D player positions`);
+    console.log(`🎨 Skin resolution enabled via Mojang Session Server API`);
     console.log();
     console.log(`Monitoring Docker container: minecraft-paper`);
     console.log(`Press Ctrl+C to stop`);
     console.log();
     
     startLogTailing();
+    
+    // Start periodic cache cleanup (every hour)
+    setInterval(() => {
+        skinService.cleanCache();
+        const stats = skinService.getCacheStats();
+        console.log(`🧹 Cache cleanup: ${stats.size} skins cached, ${stats.pending} pending fetches`);
+    }, 60 * 60 * 1000);
 });
 
 // Graceful shutdown

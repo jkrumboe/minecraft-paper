@@ -219,17 +219,16 @@
         // Scene setup
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x87ceeb); // Sky blue
-        scene.fog = new THREE.Fog(0x87ceeb, 100, 500);
+        scene.fog = new THREE.Fog(0x87ceeb, 50, 200);
 
         // Camera setup
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         camera.position.set(50, 80, 50);
 
         // Renderer setup
-        const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
+        const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: false });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.shadowMap.enabled = false; // Disabled for performance
 
         // First-person camera controls
         let yaw = 0;
@@ -291,20 +290,12 @@
             space: false
         };
 
-        // Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        // Lighting - simplified for performance
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
         scene.add(ambientLight);
 
-        const sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        const sunLight = new THREE.DirectionalLight(0xffffff, 0.5);
         sunLight.position.set(100, 200, 50);
-        sunLight.castShadow = true;
-        sunLight.shadow.camera.left = -200;
-        sunLight.shadow.camera.right = 200;
-        sunLight.shadow.camera.top = 200;
-        sunLight.shadow.camera.bottom = -200;
-        sunLight.shadow.camera.far = 500;
-        sunLight.shadow.mapSize.width = 2048;
-        sunLight.shadow.mapSize.height = 2048;
         scene.add(sunLight);
 
         // Ground grid
@@ -323,43 +314,136 @@
         const blockGroup = new THREE.Group();
         scene.add(blockGroup);
 
-        // Block materials
+        // Texture loader with error handling
+        const textureLoader = new THREE.TextureLoader();
+        
+        // Use InventivetalentDev's Minecraft texture API (supports CORS)
+        const TEXTURE_BASE = 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.20.4/assets/minecraft/textures/block';
+        
+        // Load Minecraft textures
+        const textures = {
+            grass_top: textureLoader.load(`${TEXTURE_BASE}/grass_block_top.png`, 
+                () => console.log('✅ Loaded grass_top texture'),
+                undefined,
+                (err) => console.error('❌ Failed to load grass_top:', err)),
+            grass_side: textureLoader.load(`${TEXTURE_BASE}/grass_block_side.png`,
+                () => console.log('✅ Loaded grass_side texture'),
+                undefined,
+                (err) => console.error('❌ Failed to load grass_side:', err)),
+            dirt: textureLoader.load(`${TEXTURE_BASE}/dirt.png`,
+                () => console.log('✅ Loaded dirt texture'),
+                undefined,
+                (err) => console.error('❌ Failed to load dirt:', err)),
+            stone: textureLoader.load(`${TEXTURE_BASE}/stone.png`,
+                () => console.log('✅ Loaded stone texture'),
+                undefined,
+                (err) => console.error('❌ Failed to load stone:', err)),
+            sand: textureLoader.load(`${TEXTURE_BASE}/sand.png`,
+                () => console.log('✅ Loaded sand texture'),
+                undefined,
+                (err) => console.error('❌ Failed to load sand:', err)),
+            water: textureLoader.load(`${TEXTURE_BASE}/water_still.png`,
+                () => console.log('✅ Loaded water texture'),
+                undefined,
+                (err) => console.error('❌ Failed to load water:', err))
+        };
+        
+        // Set texture filtering for pixelated look
+        Object.values(textures).forEach(texture => {
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+        });
+
+        // Create materials for grass blocks (different textures on sides)
+        const grassMaterials = [
+            new THREE.MeshBasicMaterial({ map: textures.grass_side }), // right
+            new THREE.MeshBasicMaterial({ map: textures.grass_side }), // left
+            new THREE.MeshBasicMaterial({ map: textures.grass_top }), // top
+            new THREE.MeshBasicMaterial({ map: textures.dirt }), // bottom
+            new THREE.MeshBasicMaterial({ map: textures.grass_side }), // front
+            new THREE.MeshBasicMaterial({ map: textures.grass_side })  // back
+        ];
+
+        // Block materials - using textures
         const blockMaterials = {
-            grass: new THREE.MeshLambertMaterial({ color: 0x5fad56 }), // Green
-            dirt: new THREE.MeshLambertMaterial({ color: 0x8b5a3c }), // Brown
-            stone: new THREE.MeshLambertMaterial({ color: 0x7f7f7f }), // Gray
-            sand: new THREE.MeshLambertMaterial({ color: 0xdbc17f }), // Tan
-            water: new THREE.MeshLambertMaterial({ color: 0x2389da, transparent: true, opacity: 0.7 }) // Blue transparent
+            grass: grassMaterials,
+            dirt: new THREE.MeshBasicMaterial({ map: textures.dirt }),
+            stone: new THREE.MeshBasicMaterial({ map: textures.stone }),
+            sand: new THREE.MeshBasicMaterial({ map: textures.sand }),
+            water: new THREE.MeshBasicMaterial({ map: textures.water, transparent: true, opacity: 0.7 })
         };
 
         // Block geometry (reused for all blocks)
         const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+        
+        // Store instanced meshes for each block type
+        const instancedMeshes = new Map();
 
         /**
-         * Load and render blocks around a position
+         * Load and render blocks around a position using InstancedMesh
          */
         async function loadBlocks(x, z, radius = 32) {
             try {
                 const response = await fetch(`/api/blocks?x=${Math.floor(x)}&z=${Math.floor(z)}&radius=${radius}`);
                 const data = await response.json();
                 
-                // Clear existing blocks
-                blockGroup.clear();
-                
-                // Render blocks
-                data.blocks.forEach(block => {
-                    const material = blockMaterials[block.type] || blockMaterials.stone;
-                    const blockMesh = new THREE.Mesh(blockGeometry, material);
-                    blockMesh.position.set(block.x, block.y, block.z);
-                    blockMesh.castShadow = true;
-                    blockMesh.receiveShadow = true;
-                    blockGroup.add(blockMesh);
-                });
-                
-                console.log(`Loaded ${data.blocks.length} blocks`);
+                renderBlocksOptimized(data.blocks);
+                console.log(`Loaded ${data.blocks.length} blocks (source: ${data.source || 'unknown'})`);
             } catch (error) {
                 console.error('Failed to load blocks:', error);
             }
+        }
+        
+        /**
+         * Render blocks using InstancedMesh for better performance
+         */
+        function renderBlocksOptimized(blocks) {
+            // Clear existing blocks
+            blockGroup.clear();
+            instancedMeshes.clear();
+            
+            // Group blocks by type
+            const blocksByType = {};
+            blocks.forEach(block => {
+                const type = block.type || 'stone';
+                if (!blocksByType[type]) blocksByType[type] = [];
+                blocksByType[type].push(block);
+            });
+            
+            // Create instanced mesh for each block type
+            Object.keys(blocksByType).forEach(type => {
+                const blocksOfType = blocksByType[type];
+                const material = blockMaterials[type] || blockMaterials.stone;
+                
+                // For grass blocks, we need to render individual meshes because they have multiple materials
+                // For other blocks, use instanced mesh
+                if (type === 'grass') {
+                    // Render grass blocks individually due to multi-material requirement
+                    blocksOfType.forEach(block => {
+                        const blockMesh = new THREE.Mesh(blockGeometry, material);
+                        blockMesh.position.set(block.x, block.y, block.z);
+                        blockGroup.add(blockMesh);
+                    });
+                } else {
+                    // Create instanced mesh for single-material blocks
+                    const instancedMesh = new THREE.InstancedMesh(
+                        blockGeometry,
+                        material,
+                        blocksOfType.length
+                    );
+                    
+                    // Set matrix for each instance
+                    const matrix = new THREE.Matrix4();
+                    blocksOfType.forEach((block, i) => {
+                        matrix.setPosition(block.x, block.y, block.z);
+                        instancedMesh.setMatrixAt(i, matrix);
+                    });
+                    
+                    instancedMesh.instanceMatrix.needsUpdate = true;
+                    blockGroup.add(instancedMesh);
+                    instancedMeshes.set(type, instancedMesh);
+                }
+            });
         }
 
         // Load initial blocks at spawn (smaller radius for better performance)
@@ -369,19 +453,7 @@
          * Update chunks from streamed data (real-time from plugin)
          */
         function updateChunks(chunkData) {
-            // Clear existing blocks
-            blockGroup.clear();
-            
-            // Render blocks from stream
-            chunkData.blocks.forEach(block => {
-                const material = blockMaterials[block.type] || blockMaterials.stone;
-                const blockMesh = new THREE.Mesh(blockGeometry, material);
-                blockMesh.position.set(block.x, block.y, block.z);
-                blockMesh.castShadow = true;
-                blockMesh.receiveShadow = true;
-                blockGroup.add(blockMesh);
-            });
-            
+            renderBlocksOptimized(chunkData.blocks);
             console.log(`Updated ${chunkData.blocks.length} blocks from real-time stream`);
         }
 
@@ -396,36 +468,49 @@
          * Create or update a player in the scene
          */
         function updatePlayer(data) {
-            const { uuid, name, x, y, z, yaw, pitch, world } = data;
+            const { uuid, name, x, y, z, yaw, pitch, world, skinUrl, model } = data;
 
             if (!players.has(uuid)) {
                 // Create new player
                 const color = playerColors[colorIndex % playerColors.length];
                 colorIndex++;
 
-                // Player body (smaller box)
-                const bodyGeometry = new THREE.BoxGeometry(0.4, 0.9, 0.2);
+                // Player body (adjust width based on model)
+                const bodyWidth = (model === 'slim') ? 0.35 : 0.4; // Alex has slimmer arms
+                const bodyGeometry = new THREE.BoxGeometry(bodyWidth, 0.9, 0.2);
                 const bodyMaterial = new THREE.MeshStandardMaterial({ color: color });
                 const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
                 body.castShadow = true;
 
-                // Player head with Minecraft skin
+                // Player head with Minecraft skin from Mojang API
                 const headGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
                 
-                // Try to load Minecraft player skin from crafatar.com
-                const skinLoader = new THREE.TextureLoader();
-                const skinUrl = `https://crafatar.com/avatars/${uuid}?size=64&overlay`;
-                const headMaterial = new THREE.MeshStandardMaterial({ 
-                    color: 0xffffff,
-                    map: skinLoader.load(skinUrl, 
-                        () => console.log(`Loaded skin for ${name}`),
-                        undefined,
-                        () => {
-                            // Fallback to colored head if skin fails to load
-                            headMaterial.color.set(color);
-                        }
-                    )
-                });
+                // Load skin from backend (resolved via Mojang Session Server)
+                let headMaterial;
+                if (skinUrl) {
+                    const skinLoader = new THREE.TextureLoader();
+                    headMaterial = new THREE.MeshStandardMaterial({ 
+                        color: 0xffffff,
+                        map: skinLoader.load(
+                            skinUrl,
+                            (texture) => {
+                                // Apply nearest neighbor filtering for pixelated look
+                                texture.magFilter = THREE.NearestFilter;
+                                texture.minFilter = THREE.NearestFilter;
+                                console.log(`✅ Loaded ${model || 'default'} skin for ${name}`);
+                            },
+                            undefined,
+                            (error) => {
+                                console.warn(`Failed to load skin for ${name}, using fallback`);
+                                headMaterial.color.set(color);
+                            }
+                        )
+                    });
+                } else {
+                    // Fallback to colored head if no skin URL
+                    headMaterial = new THREE.MeshStandardMaterial({ color: color });
+                }
+                
                 const head = new THREE.Mesh(headGeometry, headMaterial);
                 head.position.y = 0.7;
                 body.add(head);
