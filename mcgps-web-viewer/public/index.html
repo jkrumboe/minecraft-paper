@@ -193,7 +193,12 @@
             
             // Debug: log unique block types
             const uniqueTypes = new Set(blocks.map(b => b.type));
+            const typeCounts = {};
+            blocks.forEach(b => {
+                typeCounts[b.type] = (typeCounts[b.type] || 0) + 1;
+            });
             console.log('Block types received:', Array.from(uniqueTypes));
+            console.log('Block counts by type:', typeCounts);
             
             const blockMap = new Map();
             blocks.forEach(b => blockMap.set(`${b.x},${b.y},${b.z}`, b.type));
@@ -221,16 +226,17 @@
             Object.keys(geometryByType).forEach(type => {
                 const data = geometryByType[type];
                 const mat = materials[type] || materials.stone;
+                const isMultiMaterial = Array.isArray(mat);
                 
                 // Debug: log if material not found
                 if (!materials[type]) {
                     console.warn(`No material for type '${type}', using stone`);
                 }
                 
-                if (Array.isArray(mat)) {
-                    // Multi-material (grass, wood)
+                if (isMultiMaterial) {
+                    // Multi-material (grass, wood) - need material groups
                     data.forEach(d => {
-                        const geo = createCulledBox(d.faces);
+                        const geo = createCulledBox(d.faces, true);
                         const mesh = new THREE.Mesh(geo, mat);
                         mesh.position.set(d.x, d.y, d.z);
                         blockGroup.add(mesh);
@@ -242,7 +248,7 @@
                     let offset = 0;
                     
                     data.forEach(d => {
-                        const geo = createCulledBox(d.faces);
+                        const geo = createCulledBox(d.faces, false);
                         geo.translate(d.x, d.y, d.z);
                         
                         const pos = geo.getAttribute('position');
@@ -277,25 +283,40 @@
             console.log(`Rendered ${blocks.length} blocks`);
         }
 
-        function createCulledBox(faces) {
+        // Multi-material order: [+x, -x, +y, -y, +z, -z] = [right, left, top, bottom, front, back]
+        function createCulledBox(faces, useMultiMaterial = false) {
             const geo = new THREE.BufferGeometry();
             const positions = [], normals = [], uvs = [], indices = [];
             let v = 0;
+            let groupStart = 0;
             
-            const addFace = (verts, norm, uvCoords) => {
-                positions.push(...verts);
-                normals.push(...Array(4).fill(norm).flat());
-                uvs.push(...uvCoords);
+            // Face definitions with material index for multi-material
+            // Material indices: 0=+x, 1=-x, 2=+y, 3=-y, 4=+z, 5=-z
+            const faceData = [
+                { key: 'px', verts: [0.5,-0.5,-0.5, 0.5,0.5,-0.5, 0.5,0.5,0.5, 0.5,-0.5,0.5], norm: [1,0,0], uv: [0,1, 0,0, 1,0, 1,1], matIdx: 0 },
+                { key: 'nx', verts: [-0.5,-0.5,0.5, -0.5,0.5,0.5, -0.5,0.5,-0.5, -0.5,-0.5,-0.5], norm: [-1,0,0], uv: [0,1, 0,0, 1,0, 1,1], matIdx: 1 },
+                { key: 'py', verts: [-0.5,0.5,-0.5, -0.5,0.5,0.5, 0.5,0.5,0.5, 0.5,0.5,-0.5], norm: [0,1,0], uv: [0,1, 0,0, 1,0, 1,1], matIdx: 2 },
+                { key: 'ny', verts: [-0.5,-0.5,-0.5, 0.5,-0.5,-0.5, 0.5,-0.5,0.5, -0.5,-0.5,0.5], norm: [0,-1,0], uv: [0,1, 1,1, 1,0, 0,0], matIdx: 3 },
+                { key: 'pz', verts: [-0.5,-0.5,0.5, 0.5,-0.5,0.5, 0.5,0.5,0.5, -0.5,0.5,0.5], norm: [0,0,1], uv: [0,1, 1,1, 1,0, 0,0], matIdx: 4 },
+                { key: 'nz', verts: [0.5,-0.5,-0.5, -0.5,-0.5,-0.5, -0.5,0.5,-0.5, 0.5,0.5,-0.5], norm: [0,0,-1], uv: [0,1, 1,1, 1,0, 0,0], matIdx: 5 }
+            ];
+            
+            faceData.forEach(face => {
+                if (!faces[face.key]) return;
+                
+                positions.push(...face.verts);
+                normals.push(...Array(4).fill(face.norm).flat());
+                uvs.push(...face.uv);
                 indices.push(v, v + 1, v + 2, v, v + 2, v + 3);
+                
+                if (useMultiMaterial) {
+                    // Add a group for this face (6 indices per face = 2 triangles)
+                    geo.addGroup(groupStart, 6, face.matIdx);
+                    groupStart += 6;
+                }
+                
                 v += 4;
-            };
-            
-            if (faces.px) addFace([0.5,-0.5,-0.5, 0.5,0.5,-0.5, 0.5,0.5,0.5, 0.5,-0.5,0.5], [1,0,0], [0,1, 0,0, 1,0, 1,1]);
-            if (faces.nx) addFace([-0.5,-0.5,0.5, -0.5,0.5,0.5, -0.5,0.5,-0.5, -0.5,-0.5,-0.5], [-1,0,0], [0,1, 0,0, 1,0, 1,1]);
-            if (faces.py) addFace([-0.5,0.5,-0.5, -0.5,0.5,0.5, 0.5,0.5,0.5, 0.5,0.5,-0.5], [0,1,0], [0,1, 0,0, 1,0, 1,1]);
-            if (faces.ny) addFace([-0.5,-0.5,-0.5, 0.5,-0.5,-0.5, 0.5,-0.5,0.5, -0.5,-0.5,0.5], [0,-1,0], [0,1, 1,1, 1,0, 0,0]);
-            if (faces.pz) addFace([-0.5,-0.5,0.5, 0.5,-0.5,0.5, 0.5,0.5,0.5, -0.5,0.5,0.5], [0,0,1], [0,1, 1,1, 1,0, 0,0]);
-            if (faces.nz) addFace([0.5,-0.5,-0.5, -0.5,-0.5,-0.5, -0.5,0.5,-0.5, 0.5,0.5,-0.5], [0,0,-1], [0,1, 1,1, 1,0, 0,0]);
+            });
             
             geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
             geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));

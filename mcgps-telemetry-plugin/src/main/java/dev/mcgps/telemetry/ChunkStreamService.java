@@ -26,8 +26,9 @@ public class ChunkStreamService {
     private static final long CHUNK_UPDATE_INTERVAL_TICKS = 60L; // Every 3 seconds
     private static final int CHUNK_RADIUS = 3; // 6x6 chunks (96x96 blocks)
     private static final int SAMPLE_INTERVAL = 1; // Sample every block for no gaps
-    private static final int MAX_HEIGHT_SCAN = 120; // Scan up to Y=120
-    private static final int MIN_HEIGHT_SCAN = 50; // Start scanning from Y=50
+    private static final int MAX_HEIGHT_SCAN = 320; // Scan from world height
+    private static final int MIN_HEIGHT_SCAN = -64; // Down to world bottom
+    private static final int HEIGHT_ABOVE_PLAYER = 50; // Scan this many blocks above player
     
     private final JavaPlugin plugin;
     private final Map<UUID, ChunkSnapshot> lastChunkSnapshots;
@@ -89,28 +90,44 @@ public class ChunkStreamService {
         
         int centerX = loc.getBlockX();
         int centerZ = loc.getBlockZ();
+        int playerY = loc.getBlockY();
         int radius = CHUNK_RADIUS * 16; // Convert chunks to blocks
+        
+        // Start scanning from above the player (to catch tall structures/trees)
+        int startY = Math.min(playerY + HEIGHT_ABOVE_PLAYER, world.getMaxHeight() - 1);
+        int endY = Math.max(playerY - 50, world.getMinHeight()); // Go 50 blocks below player
         
         List<BlockData> blocks = new ArrayList<>();
         
         // Sample blocks in the area
+        int scannedPositions = 0;
+        int foundBlocks = 0;
+        
         for (int x = centerX - radius; x <= centerX + radius; x += SAMPLE_INTERVAL) {
             for (int z = centerZ - radius; z <= centerZ + radius; z += SAMPLE_INTERVAL) {
                 // Scan from top to bottom to capture everything (trees, structures, etc.)
-                boolean foundAny = false;
+                scannedPositions++;
+                boolean foundGround = false;
                 
-                for (int y = MAX_HEIGHT_SCAN; y >= MIN_HEIGHT_SCAN; y--) {
+                for (int y = startY; y >= endY && !foundGround; y--) {
                     Block block = world.getBlockAt(x, y, z);
                     Material type = block.getType();
                     
-                    // Include all solid blocks and vegetation
-                    if (type != Material.AIR && type != Material.CAVE_AIR) {
+                    // Include all solid blocks except vegetation (too small)
+                    if (type != Material.AIR && type != Material.CAVE_AIR && type != Material.VOID_AIR) {
                         String blockType = getSimplifiedBlockType(type);
-                        blocks.add(new BlockData(x, y, z, blockType));
-                        foundAny = true;
                         
-                        // Once we hit ground level blocks, go down a bit more for depth
+                        // Skip vegetation blocks (short grass, flowers, etc.)
+                        if (blockType.equals("vegetation")) {
+                            continue;
+                        }
+                        
+                        blocks.add(new BlockData(x, y, z, blockType));
+                        foundBlocks++;
+                        
+                        // Once we hit ground level blocks, go down a bit more for depth then stop
                         if (isGroundBlock(type)) {
+                            foundGround = true;
                             // Add 2 more blocks below for depth
                             for (int depth = 1; depth <= 2; depth++) {
                                 int belowY = y - depth;
@@ -118,18 +135,32 @@ public class ChunkStreamService {
                                     Block belowBlock = world.getBlockAt(x, belowY, z);
                                     if (belowBlock.getType() != Material.AIR) {
                                         String belowType = getSimplifiedBlockType(belowBlock.getType());
-                                        blocks.add(new BlockData(x, belowY, z, belowType));
+                                        if (!belowType.equals("vegetation")) {
+                                            blocks.add(new BlockData(x, belowY, z, belowType));
+                                            foundBlocks++;
+                                        }
                                     }
                                 }
                             }
-                            break; // Stop scanning down once we hit ground
                         }
-                    } else if (foundAny) {
-                        // We were finding blocks but now hit air - stop scanning
-                        break;
                     }
                 }
             }
+        }
+        
+        // Debug: log scan results
+        if (blocks.isEmpty()) {
+            plugin.getLogger().warning("Chunk scan found 0 blocks! Scanned " + scannedPositions + 
+                " positions from Y=" + startY + " to Y=" + endY +
+                " around (" + centerX + ", " + centerZ + ") playerY=" + playerY);
+            
+            // Try to get a single block at player location for debugging
+            Block testBlock = world.getBlockAt(centerX, playerY, centerZ);
+            plugin.getLogger().warning("Block at player feet (" + centerX + "," + playerY + "," + centerZ + "): " + testBlock.getType().name());
+            Block testBlockBelow = world.getBlockAt(centerX, playerY - 1, centerZ);
+            plugin.getLogger().warning("Block below player (" + centerX + "," + (playerY-1) + "," + centerZ + "): " + testBlockBelow.getType().name());
+        } else {
+            plugin.getLogger().info("Chunk scan found " + foundBlocks + " blocks from " + scannedPositions + " positions");
         }
         
         // Emit chunk data as JSON
@@ -190,29 +221,41 @@ public class ChunkStreamService {
         // Grass blocks
         if (name.equals("grass_block")) return "grass";
         
-        // Vegetation and leaves (treat as grass for green color)
-        if (name.contains("leaves") || name.contains("azalea") || 
-            name.contains("grass") && !name.contains("grass_block")) return "grass";
+        // Leaves - keep as separate type for transparency
+        if (name.contains("leaves") || name.contains("azalea")) return "leaves";
+        
+        // Short grass, ferns, flowers, etc. - skip (too small to render)
+        if (name.contains("grass") && !name.contains("grass_block")) return "vegetation";
+        if (name.contains("fern") || name.contains("flower") || name.contains("tulip") ||
+            name.contains("dandelion") || name.contains("poppy") || name.contains("orchid") ||
+            name.contains("allium") || name.contains("cornflower") || name.contains("lily")) return "vegetation";
         
         // Dirt and soil
         if (name.contains("dirt") || name.contains("podzol") || 
-            name.contains("coarse") || name.contains("rooted")) return "dirt";
+            name.contains("coarse") || name.contains("rooted") || name.contains("mud")) return "dirt";
         
         // Sand
-        if (name.contains("sand")) return "sand";
+        if (name.contains("sand") && !name.contains("sandstone")) return "sand";
+        if (name.contains("sandstone")) return "stone";
         
         // Gravel
-        if (name.contains("gravel")) return "stone";
+        if (name.contains("gravel")) return "gravel";
         
-        // Wood blocks (logs, planks, stripped)
-        if (name.contains("log") || name.contains("wood") || 
-            name.contains("planks") || name.contains("stripped")) return "wood";
+        // Wood blocks (logs)
+        if (name.contains("log") || name.contains("stripped") && name.contains("wood")) return "wood";
+        
+        // Planks
+        if (name.contains("planks")) return "planks";
         
         // Stone variants
         if (name.contains("stone") || name.contains("andesite") || 
             name.contains("diorite") || name.contains("granite") ||
             name.contains("cobble") || name.contains("bedrock") ||
+            name.contains("deepslate") || name.contains("tuff") ||
             name.contains("ore")) return "stone";
+        
+        // Snow
+        if (name.contains("snow")) return "snow";
         
         // Default to stone for other solid blocks
         return "stone";
