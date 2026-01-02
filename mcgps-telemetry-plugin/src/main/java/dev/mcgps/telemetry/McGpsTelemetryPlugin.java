@@ -17,6 +17,7 @@ public class McGpsTelemetryPlugin extends JavaPlugin {
     private TelemetryService telemetryService;
     private ChunkStreamService chunkStreamService;
     private BlockChangeListener blockChangeListener;
+    private InventoryChangeListener inventoryChangeListener;
     
     @Override
     public void onEnable() {
@@ -27,6 +28,10 @@ public class McGpsTelemetryPlugin extends JavaPlugin {
         // Register block change listener for real-time updates
         blockChangeListener = new BlockChangeListener(this);
         getServer().getPluginManager().registerEvents(blockChangeListener, this);
+        
+        // Register inventory change listener for real-time inventory updates
+        inventoryChangeListener = new InventoryChangeListener(this, telemetryService);
+        getServer().getPluginManager().registerEvents(inventoryChangeListener, this);
         
         // Start the telemetry task (runs every 2 ticks = 10 times per second)
         telemetryService.start();

@@ -8,8 +8,11 @@ import java.util.UUID;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -73,6 +76,18 @@ public class TelemetryService {
     }
     
     /**
+     * Force emit telemetry for a specific player (used for inventory updates)
+     */
+    public void forceEmit(Player player) {
+        if (player == null || !player.isOnline()) return;
+        UUID uuid = player.getUniqueId();
+        if (disabledPlayers.contains(uuid)) return;
+        
+        emitTelemetryRecord(player, player.getLocation());
+        lastStates.put(uuid, new LastState(player.getLocation()));
+    }
+    
+    /**
      * Main telemetry emission logic - called every 2 ticks
      */
     private void emitTelemetry() {
@@ -128,10 +143,14 @@ public class TelemetryService {
         float pitch = loc.getPitch();
         boolean onGround = player.isOnGround();
         
+        // Get inventory data
+        String inventoryJson = getInventoryJson(player);
+        
         // Build JSON manually (no external libraries)
         String json = String.format(
-            "{\"ts\":%d,\"uuid\":\"%s\",\"name\":\"%s\",\"world\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.2f,\"pitch\":%.2f,\"onGround\":%b}",
-            timestamp, uuid, name, worldName, x, y, z, yaw, pitch, onGround
+            "{\"ts\":%d,\"uuid\":\"%s\",\"name\":\"%s\",\"world\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.2f,\"pitch\":%.2f,\"onGround\":%b,\"health\":%.1f,\"food\":%d,\"level\":%d,\"inventory\":%s}",
+            timestamp, uuid, name, worldName, x, y, z, yaw, pitch, onGround,
+            player.getHealth(), player.getFoodLevel(), player.getLevel(), inventoryJson
         );
         
         plugin.getLogger().info(json);
@@ -156,6 +175,61 @@ public class TelemetryService {
         while (delta > 180.0) delta -= 360.0;
         while (delta < -180.0) delta += 360.0;
         return delta;
+    }
+    
+    /**
+     * Get player inventory as JSON array
+     */
+    private String getInventoryJson(Player player) {
+        PlayerInventory inv = player.getInventory();
+        StringBuilder json = new StringBuilder();
+        json.append("{");
+        
+        // Hotbar (slots 0-8)
+        json.append("\"hotbar\":[");
+        for (int i = 0; i < 9; i++) {
+            if (i > 0) json.append(",");
+            json.append(itemToJson(inv.getItem(i)));
+        }
+        json.append("],");
+        
+        // Main inventory (slots 9-35)
+        json.append("\"main\":[");
+        for (int i = 9; i < 36; i++) {
+            if (i > 9) json.append(",");
+            json.append(itemToJson(inv.getItem(i)));
+        }
+        json.append("],");
+        
+        // Armor (helmet, chestplate, leggings, boots)
+        json.append("\"armor\":[");
+        ItemStack[] armor = inv.getArmorContents();
+        for (int i = armor.length - 1; i >= 0; i--) { // Reverse order: helmet first
+            if (i < armor.length - 1) json.append(",");
+            json.append(itemToJson(armor[i]));
+        }
+        json.append("],");
+        
+        // Offhand
+        json.append("\"offhand\":").append(itemToJson(inv.getItemInOffHand()));
+        
+        // Held slot
+        json.append(",\"heldSlot\":").append(inv.getHeldItemSlot());
+        
+        json.append("}");
+        return json.toString();
+    }
+    
+    /**
+     * Convert an ItemStack to JSON object
+     */
+    private String itemToJson(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            return "null";
+        }
+        String type = escapeJson(item.getType().name().toLowerCase());
+        int amount = item.getAmount();
+        return String.format("{\"type\":\"%s\",\"amount\":%d}", type, amount);
     }
     
     /**

@@ -15,6 +15,37 @@
         .connected { background: #0f0; box-shadow: 0 0 10px #0f0; }
         .disconnected { background: #f00; box-shadow: 0 0 10px #f00; }
         #info { position: absolute; bottom: 20px; left: 20px; background: rgba(0,0,0,0.8); padding: 10px; border-radius: 8px; font-size: 12px; font-family: monospace; }
+        #inventory-panel { 
+            position: absolute; 
+            top: 20px; 
+            right: 20px; 
+            background: rgba(0,0,0,0.9); 
+            padding: 15px; 
+            border-radius: 8px; 
+            border: 2px solid #00ff88; 
+            display: none;
+            min-width: 280px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        #inventory-panel h2 { font-size: 16px; color: #00ff88; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 8px; }
+        #inventory-panel .close-btn { position: absolute; top: 8px; right: 10px; cursor: pointer; color: #888; font-size: 18px; }
+        #inventory-panel .close-btn:hover { color: #fff; }
+        #inventory-panel .player-stats { margin-bottom: 12px; font-size: 13px; }
+        #inventory-panel .stat { margin: 4px 0; display: flex; align-items: center; }
+        #inventory-panel .stat-bar { height: 8px; background: #333; border-radius: 4px; flex: 1; margin-left: 8px; overflow: hidden; }
+        #inventory-panel .stat-fill { height: 100%; }
+        #inventory-panel .health-fill { background: linear-gradient(90deg, #ff4444, #ff6666); }
+        #inventory-panel .food-fill { background: linear-gradient(90deg, #aa8844, #cc9955); }
+        #inventory-panel .xp-fill { background: linear-gradient(90deg, #44ff44, #88ff88); }
+        .inv-section { margin-bottom: 12px; }
+        .inv-section-title { font-size: 11px; color: #888; margin-bottom: 4px; text-transform: uppercase; }
+        .inv-grid { display: grid; grid-template-columns: repeat(9, 28px); gap: 2px; }
+        .inv-slot { width: 28px; height: 28px; background: #222; border: 1px solid #444; border-radius: 3px; display: flex; align-items: center; justify-content: center; position: relative; font-size: 9px; color: #fff; text-transform: capitalize; }
+        .inv-slot.filled { background: #333; border-color: #666; }
+        .inv-slot.held { border-color: #00ff88; box-shadow: 0 0 4px #00ff88; }
+        .inv-slot .amount { position: absolute; bottom: 1px; right: 2px; font-size: 8px; color: #fff; text-shadow: 1px 1px 1px #000; }
+        .armor-grid { display: grid; grid-template-columns: repeat(4, 28px); gap: 2px; }
     </style>
 </head>
 <body>
@@ -29,6 +60,31 @@
         <div>Rendered: <span id="rendered-chunks">0</span></div>
         <div>Players: <span id="player-count">0</span></div>
         <div>Camera: <span id="camera-pos">0, 0, 0</span></div>
+    </div>
+    <div id="inventory-panel">
+        <span class="close-btn" onclick="closeInventoryPanel()">&times;</span>
+        <h2 id="inv-player-name">Player Inventory</h2>
+        <div class="player-stats">
+            <div class="stat">❤️ Health <div class="stat-bar"><div class="stat-fill health-fill" id="health-bar"></div></div></div>
+            <div class="stat">🍖 Food <div class="stat-bar"><div class="stat-fill food-fill" id="food-bar"></div></div></div>
+            <div class="stat">✨ Level <span id="player-level" style="margin-left:8px;color:#88ff88">0</span></div>
+        </div>
+        <div class="inv-section">
+            <div class="inv-section-title">Hotbar</div>
+            <div class="inv-grid" id="inv-hotbar"></div>
+        </div>
+        <div class="inv-section">
+            <div class="inv-section-title">Armor</div>
+            <div class="armor-grid" id="inv-armor"></div>
+        </div>
+        <div class="inv-section">
+            <div class="inv-section-title">Offhand</div>
+            <div id="inv-offhand"></div>
+        </div>
+        <div class="inv-section">
+            <div class="inv-section-title">Inventory</div>
+            <div class="inv-grid" id="inv-main"></div>
+        </div>
     </div>
 
     <script type="importmap">
@@ -69,6 +125,15 @@
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio
         document.getElementById('canvas-container').appendChild(renderer.domElement);
 
+        // Player selection
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let selectedPlayerUuid = null;
+        const playerData = new Map(); // Store latest player data including inventory
+        
+        // Highlight material for selected player
+        const highlightMaterial = new THREE.LineBasicMaterial({ color: 0x00ff88, linewidth: 2 });
+
         // Lighting
         const ambient = new THREE.AmbientLight(0xffffff, 0.6);
         scene.add(ambient);
@@ -78,6 +143,7 @@
 
         // Camera controls
         let isDragging = false, lastX = 0, lastY = 0;
+        let clickStartX = 0, clickStartY = 0;
         const keys = { w: false, a: false, s: false, d: false, shift: false, space: false };
 
         renderer.domElement.addEventListener('mousedown', e => {
@@ -85,11 +151,24 @@
                 isDragging = true; 
                 lastX = e.clientX; 
                 lastY = e.clientY;
+                clickStartX = e.clientX;
+                clickStartY = e.clientY;
                 renderer.domElement.style.cursor = 'grabbing';
             }
         });
         
-        renderer.domElement.addEventListener('mouseup', () => {
+        renderer.domElement.addEventListener('mouseup', (e) => {
+            // Check if this was a click (not a drag)
+            const dragDistance = Math.sqrt(
+                Math.pow(e.clientX - clickStartX, 2) + 
+                Math.pow(e.clientY - clickStartY, 2)
+            );
+            
+            if (dragDistance < 5) {
+                // This is a click - check for player selection
+                handlePlayerClick(e);
+            }
+            
             isDragging = false;
             renderer.domElement.style.cursor = 'default';
         });
@@ -655,6 +734,204 @@
             document.getElementById('rendered-chunks').textContent = `${visibleChunks}/${chunkMeshes.size}`;
         }
         
+        // Handle click on player
+        function handlePlayerClick(event) {
+            // Calculate mouse position in normalized device coordinates
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            
+            // Get all player meshes
+            const playerMeshes = [];
+            players.forEach((player, uuid) => {
+                player.group.traverse(obj => {
+                    if (obj.isMesh) {
+                        obj.userData.playerUuid = uuid;
+                        playerMeshes.push(obj);
+                    }
+                });
+            });
+            
+            const intersects = raycaster.intersectObjects(playerMeshes, false);
+            
+            if (intersects.length > 0) {
+                const clickedUuid = intersects[0].object.userData.playerUuid;
+                selectPlayer(clickedUuid);
+            } else {
+                deselectPlayer();
+            }
+        }
+        
+        // Select a player
+        function selectPlayer(uuid) {
+            // Deselect previous
+            if (selectedPlayerUuid && players.has(selectedPlayerUuid)) {
+                removeHighlight(players.get(selectedPlayerUuid));
+            }
+            
+            selectedPlayerUuid = uuid;
+            const player = players.get(uuid);
+            if (player) {
+                addHighlight(player);
+                showInventoryPanel(uuid);
+            }
+        }
+        
+        // Deselect current player
+        function deselectPlayer() {
+            if (selectedPlayerUuid && players.has(selectedPlayerUuid)) {
+                removeHighlight(players.get(selectedPlayerUuid));
+            }
+            selectedPlayerUuid = null;
+            document.getElementById('inventory-panel').style.display = 'none';
+        }
+        
+        // Add highlight box around player
+        function addHighlight(player) {
+            // Create a box outline around the player
+            const box = new THREE.Box3();
+            box.setFromObject(player.bodyGroup);
+            
+            // Expand the box slightly
+            box.expandByScalar(0.05);
+            
+            const size = new THREE.Vector3();
+            const center = new THREE.Vector3();
+            box.getSize(size);
+            box.getCenter(center);
+            
+            const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
+            const edges = new THREE.EdgesGeometry(geometry);
+            const highlight = new THREE.LineSegments(edges, highlightMaterial);
+            highlight.position.copy(center);
+            highlight.position.sub(player.group.position); // Make relative to group
+            highlight.name = 'playerHighlight';
+            player.group.add(highlight);
+        }
+        
+        // Remove highlight from player
+        function removeHighlight(player) {
+            const highlight = player.group.getObjectByName('playerHighlight');
+            if (highlight) {
+                player.group.remove(highlight);
+                highlight.geometry.dispose();
+            }
+        }
+        
+        // Show inventory panel for player
+        function showInventoryPanel(uuid) {
+            const data = playerData.get(uuid);
+            if (!data) return;
+            
+            const panel = document.getElementById('inventory-panel');
+            panel.style.display = 'block';
+            
+            document.getElementById('inv-player-name').textContent = data.name || uuid.substring(0, 8);
+            
+            // Health bar (max 20)
+            const healthPercent = Math.min(100, ((data.health || 0) / 20) * 100);
+            document.getElementById('health-bar').style.width = healthPercent + '%';
+            
+            // Food bar (max 20)
+            const foodPercent = Math.min(100, ((data.food || 0) / 20) * 100);
+            document.getElementById('food-bar').style.width = foodPercent + '%';
+            
+            // Level
+            document.getElementById('player-level').textContent = data.level || 0;
+            
+            // Inventory
+            if (data.inventory) {
+                renderInventorySlots('inv-hotbar', data.inventory.hotbar || [], data.inventory.heldSlot);
+                renderInventorySlots('inv-main', data.inventory.main || []);
+                renderArmorSlots('inv-armor', data.inventory.armor || []);
+                renderOffhand('inv-offhand', data.inventory.offhand);
+            }
+        }
+        
+        // Render inventory slots
+        function renderInventorySlots(containerId, items, heldSlot = -1) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            items.forEach((item, index) => {
+                const slot = document.createElement('div');
+                slot.className = 'inv-slot' + (item ? ' filled' : '') + (index === heldSlot ? ' held' : '');
+                
+                if (item) {
+                    slot.textContent = getItemShortName(item.type);
+                    if (item.amount > 1) {
+                        const amount = document.createElement('span');
+                        amount.className = 'amount';
+                        amount.textContent = item.amount;
+                        slot.appendChild(amount);
+                    }
+                    slot.title = item.type + (item.amount > 1 ? ` x${item.amount}` : '');
+                }
+                
+                container.appendChild(slot);
+            });
+        }
+        
+        // Render armor slots
+        function renderArmorSlots(containerId, items) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            const labels = ['🪖', '👕', '👖', '👢'];
+            
+            items.forEach((item, index) => {
+                const slot = document.createElement('div');
+                slot.className = 'inv-slot' + (item ? ' filled' : '');
+                
+                if (item) {
+                    slot.textContent = getItemShortName(item.type);
+                    slot.title = item.type;
+                } else {
+                    slot.textContent = labels[index] || '';
+                    slot.style.opacity = '0.3';
+                }
+                
+                container.appendChild(slot);
+            });
+        }
+        
+        // Render offhand slot
+        function renderOffhand(containerId, item) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            const slot = document.createElement('div');
+            slot.className = 'inv-slot' + (item ? ' filled' : '');
+            
+            if (item) {
+                slot.textContent = getItemShortName(item.type);
+                if (item.amount > 1) {
+                    const amount = document.createElement('span');
+                    amount.className = 'amount';
+                    amount.textContent = item.amount;
+                    slot.appendChild(amount);
+                }
+                slot.title = item.type + (item.amount > 1 ? ` x${item.amount}` : '');
+            } else {
+                slot.textContent = '🛡️';
+                slot.style.opacity = '0.3';
+            }
+            
+            container.appendChild(slot);
+        }
+        
+        // Get short display name for item
+        function getItemShortName(type) {
+            if (!type) return '';
+            // Remove common prefixes and shorten
+            return type.replace(/_/g, ' ').split(' ').pop().substring(0, 4);
+        }
+        
+        // Close inventory panel (exposed globally)
+        window.closeInventoryPanel = function() {
+            deselectPlayer();
+        };
+
         // Create materials for each face of a body part from skin texture
         function createSkinMaterials(texture, uvMap) {
             // uvMap: { right, left, top, bottom, front, back } each with {x, y, w, h} in pixels
@@ -881,6 +1158,17 @@
             
             // Name tag always faces camera
             player.nameTag.lookAt(camera.position);
+            
+            // Store player data for inventory display
+            playerData.set(uuid, data);
+            
+            // Update inventory panel if this player is selected
+            if (selectedPlayerUuid === uuid) {
+                showInventoryPanel(uuid);
+                // Update highlight position
+                removeHighlight(player);
+                addHighlight(player);
+            }
             
             document.getElementById('player-count').textContent = players.size;
         }
