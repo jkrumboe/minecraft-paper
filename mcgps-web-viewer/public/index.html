@@ -55,6 +55,7 @@
         <div id="status"><span class="dot disconnected" id="dot"></span><span id="status-text">Connecting...</span></div>
     </div>
     <div id="info">
+        <div>World: <span id="current-world">world</span></div>
         <div>FPS: <span id="fps">0</span></div>
         <div>Blocks: <span id="block-count">0</span></div>
         <div>Rendered: <span id="rendered-chunks">0</span></div>
@@ -252,18 +253,48 @@
 
         // Chunk-based rendering system (like Minecraft)
         const CHUNK_SIZE = 16;
-        const chunkMeshes = new Map(); // Map<chunkKey, THREE.Group>
         const chunkGroup = new THREE.Group();
         scene.add(chunkGroup);
         
-        // Track loaded chunk data for incremental updates
-        const loadedChunkData = new Map(); // Map<chunkKey, { blocks: [], chunkX, chunkZ }>
+        // Track loaded chunk data per world for caching
+        const worldChunkData = new Map(); // Map<worldName, Map<chunkKey, { blocks, chunkX, chunkZ }>>
+        const worldBlockMaps = new Map(); // Map<worldName, Map<blockKey, blockType>>
+        const worldChunkMeshes = new Map(); // Map<worldName, Map<chunkKey, mesh>>
+        
+        // Current displayed world
+        let currentWorld = 'world';
+        
+        // Helper to get chunk data for current world
+        function getLoadedChunkData() {
+            if (!worldChunkData.has(currentWorld)) {
+                worldChunkData.set(currentWorld, new Map());
+            }
+            return worldChunkData.get(currentWorld);
+        }
+        
+        // Helper to get block map for current world
+        function getGlobalBlockMap() {
+            if (!worldBlockMaps.has(currentWorld)) {
+                worldBlockMaps.set(currentWorld, new Map());
+            }
+            return worldBlockMaps.get(currentWorld);
+        }
+        
+        // Helper to get chunk meshes for current world
+        function getChunkMeshes() {
+            if (!worldChunkMeshes.has(currentWorld)) {
+                worldChunkMeshes.set(currentWorld, new Map());
+            }
+            return worldChunkMeshes.get(currentWorld);
+        }
+        
+        // Backwards compatibility references (updated when world changes)
+        let loadedChunkData = getLoadedChunkData();
+        let globalBlockMap = getGlobalBlockMap();
+        let chunkMeshes = getChunkMeshes();
         
         const players = new Map();
         let pendingBlocks = null;
-        
-        // Global block map for occlusion culling
-        let globalBlockMap = new Map();
         let needsRebuild = false;
         let initialCameraPositioned = false;
         
@@ -450,8 +481,66 @@
             console.log(`Rendered ${blocks.length} blocks in ${chunkMeshes.size} chunks`);
         }
         
+        // Switch to a different world (hide current, show target)
+        function switchToWorld(worldName) {
+            if (worldName === currentWorld) return;
+            
+            console.log(`Switching from ${currentWorld} to ${worldName}`);
+            
+            // Hide current world's meshes
+            const currentMeshes = getChunkMeshes();
+            currentMeshes.forEach(mesh => {
+                mesh.visible = false;
+            });
+            
+            // Update current world
+            currentWorld = worldName;
+            document.getElementById('current-world').textContent = worldName;
+            
+            // Update references to new world's data
+            loadedChunkData = getLoadedChunkData();
+            globalBlockMap = getGlobalBlockMap();
+            chunkMeshes = getChunkMeshes();
+            
+            // Show new world's meshes (or they'll be built as chunks arrive)
+            const newMeshes = getChunkMeshes();
+            newMeshes.forEach(mesh => {
+                mesh.visible = true;
+                chunkGroup.add(mesh);
+            });
+            
+            console.log(`Switched to ${worldName} - ${loadedChunkData.size} chunks cached`);
+            
+            // Reset camera position for new world
+            initialCameraPositioned = false;
+            if (loadedChunkData.size >= 4) {
+                positionCameraToViewChunks();
+                initialCameraPositioned = true;
+            }
+            
+            updateBlockCount();
+        }
+        
         // Add a single chunk of blocks (incremental loading)
-        function addChunk(chunkX, chunkZ, blocks) {
+        function addChunk(chunkX, chunkZ, blocks, worldName = 'world') {
+            // If chunk is for a different world, store it there but don't display
+            if (worldName !== currentWorld) {
+                if (!worldChunkData.has(worldName)) {
+                    worldChunkData.set(worldName, new Map());
+                    worldBlockMaps.set(worldName, new Map());
+                    worldChunkMeshes.set(worldName, new Map());
+                }
+                const otherChunkData = worldChunkData.get(worldName);
+                const otherBlockMap = worldBlockMaps.get(worldName);
+                
+                const key = getChunkKey2D(chunkX, chunkZ);
+                otherChunkData.set(key, { chunkX, chunkZ, blocks });
+                blocks.forEach(b => {
+                    otherBlockMap.set(`${b.x},${b.y},${b.z}`, b.type);
+                });
+                return; // Don't build mesh for non-current world
+            }
+            
             const key = getChunkKey2D(chunkX, chunkZ);
             
             // Store chunk data
@@ -490,8 +579,28 @@
             }
         }
         
-        // Remove chunks (unload)
-        function removeChunks(chunks) {
+        // Remove chunks (unload) from a specific world
+        function removeChunks(chunks, worldName = 'world') {
+            // Only process if it's the current world
+            if (worldName !== currentWorld) {
+                // Just remove from storage for other worlds
+                const otherData = worldChunkData.get(worldName);
+                const otherBlocks = worldBlockMaps.get(worldName);
+                if (otherData && otherBlocks) {
+                    chunks.forEach(({ x, z }) => {
+                        const key = getChunkKey2D(x, z);
+                        const chunkInfo = otherData.get(key);
+                        if (chunkInfo) {
+                            chunkInfo.blocks.forEach(b => {
+                                otherBlocks.delete(`${b.x},${b.y},${b.z}`);
+                            });
+                            otherData.delete(key);
+                        }
+                    });
+                }
+                return;
+            }
+            
             chunks.forEach(({ x, z }) => {
                 const key = getChunkKey2D(x, z);
                 
@@ -1195,19 +1304,25 @@
                 Object.values(msg.players).forEach(updatePlayer);
             } else if (msg.type === 'update') {
                 updatePlayer(msg.player);
+            } else if (msg.type === 'world_change') {
+                // Player changed worlds - switch displayed world
+                console.log(`World change: ${msg.data.world}`);
+                switchToWorld(msg.data.world);
             } else if (msg.type === 'block_change') {
                 // Real-time block update
                 handleBlockChange(msg.data);
             } else if (msg.type === 'chunk') {
                 // Single chunk (incremental loading)
-                const { chunkX, chunkZ, blocks } = msg.data;
-                console.log(`Received chunk (${chunkX},${chunkZ}): ${blocks.length} blocks`);
-                addChunk(chunkX, chunkZ, blocks);
+                const { chunkX, chunkZ, blocks, world } = msg.data;
+                const worldName = world || 'world';
+                console.log(`Received chunk (${chunkX},${chunkZ}) in ${worldName}: ${blocks.length} blocks`);
+                addChunk(chunkX, chunkZ, blocks, worldName);
             } else if (msg.type === 'chunk_unload') {
                 // Unload distant chunks
-                const { chunks } = msg.data;
-                console.log(`Unloading ${chunks.length} chunks`);
-                removeChunks(chunks);
+                const { chunks, world } = msg.data;
+                const worldName = world || 'world';
+                console.log(`Unloading ${chunks.length} chunks from ${worldName}`);
+                removeChunks(chunks, worldName);
             } else if (msg.type === 'chunks') {
                 // Legacy bulk chunks
                 console.log(`Received ${msg.data.blocks.length} blocks (bulk)`);

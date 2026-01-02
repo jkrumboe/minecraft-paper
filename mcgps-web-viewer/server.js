@@ -25,8 +25,11 @@ const PORT = 3000;
 const playerData = new Map();
 const MAX_HISTORY = 100;
 
-// Store loaded chunks per player (chunkKey -> blocks)
-const loadedChunks = new Map();
+// Store loaded chunks per world (worldName -> Map<chunkKey, blocks>)
+const worldChunks = new Map();
+
+// Track current world for each player
+const playerWorlds = new Map();
 
 // Store player skin data (resolved from Mojang API)
 const playerSkins = new Map();
@@ -70,12 +73,16 @@ app.get('/telemetry-stream', (req, res) => {
     
     res.write(`data: ${JSON.stringify({ type: 'init', players: currentData })}\n\n`);
     
-    // Send all cached chunks to new client
-    if (loadedChunks.size > 0) {
-        console.log(`Sending ${loadedChunks.size} cached chunks to new client`);
-        loadedChunks.forEach((chunkInfo, chunkKey) => {
+    // Send all cached chunks from all worlds to new client
+    let totalChunks = 0;
+    worldChunks.forEach((chunks, worldName) => {
+        totalChunks += chunks.size;
+        chunks.forEach((chunkInfo, chunkKey) => {
             res.write(`data: ${JSON.stringify({ type: 'chunk', data: chunkInfo })}\n\n`);
         });
+    });
+    if (totalChunks > 0) {
+        console.log(`Sending ${totalChunks} cached chunks from ${worldChunks.size} worlds to new client`);
     }
 
     // Remove client on disconnect
@@ -89,6 +96,21 @@ app.get('/telemetry-stream', (req, res) => {
  */
 function broadcastTelemetry(data) {
     const message = `data: ${JSON.stringify({ type: 'update', player: data })}\n\n`;
+    
+    clients.forEach(client => {
+        try {
+            client.write(message);
+        } catch (err) {
+            clients.delete(client);
+        }
+    });
+}
+
+/**
+ * Broadcast world change to all connected clients
+ */
+function broadcastWorldChange(data) {
+    const message = `data: ${JSON.stringify({ type: 'world_change', data })}\n\n`;
     
     clients.forEach(client => {
         try {
@@ -194,16 +216,24 @@ function parseTelemetryLine(line) {
         // Check if it's a single chunk (new incremental format)
         if (data.type === 'chunk' && data.uuid && data.blocks) {
             const chunkKey = `${data.chunkX},${data.chunkZ}`;
-            console.log(`Received chunk (${chunkKey}): ${data.blocks.length} blocks`);
+            console.log(`Received chunk (${chunkKey}) in ${data.world || 'world'}: ${data.blocks.length} blocks`);
             storeChunk(data);
             broadcastChunk(data);
             return;
         }
         
+        // Check if it's a world change event
+        if (data.type === 'world_change' && data.uuid && data.world) {
+            console.log(`Player ${data.uuid} changed to world: ${data.world}`);
+            playerWorlds.set(data.uuid, data.world);
+            broadcastWorldChange(data);
+            return;
+        }
+        
         // Check if it's chunk unload data
         if (data.type === 'chunk_unload' && data.chunks) {
-            console.log(`Unloading ${data.chunks.length} chunks`);
-            unloadChunks(data.chunks);
+            console.log(`Unloading ${data.chunks.length} chunks from ${data.world || 'world'}`);
+            unloadChunks(data.chunks, data.world);
             broadcastChunkUnload(data);
             return;
         }
@@ -286,26 +316,37 @@ async function storeTelemetry(data) {
 }
 
 /**
- * Store a single chunk
+ * Store a single chunk in world-specific cache
  */
 function storeChunk(data) {
+    const worldName = data.world || 'world';
     const chunkKey = `${data.chunkX},${data.chunkZ}`;
-    loadedChunks.set(chunkKey, {
+    
+    // Get or create world's chunk map
+    if (!worldChunks.has(worldName)) {
+        worldChunks.set(worldName, new Map());
+    }
+    const chunks = worldChunks.get(worldName);
+    
+    chunks.set(chunkKey, {
         chunkX: data.chunkX,
         chunkZ: data.chunkZ,
         blocks: data.blocks,
-        world: data.world,
+        world: worldName,
         ts: data.ts
     });
 }
 
 /**
- * Unload chunks
+ * Unload chunks from a specific world
  */
-function unloadChunks(chunks) {
+function unloadChunks(chunks, worldName = 'world') {
+    const worldMap = worldChunks.get(worldName);
+    if (!worldMap) return;
+    
     for (const chunk of chunks) {
         const chunkKey = `${chunk.x},${chunk.z}`;
-        loadedChunks.delete(chunkKey);
+        worldMap.delete(chunkKey);
     }
 }
 

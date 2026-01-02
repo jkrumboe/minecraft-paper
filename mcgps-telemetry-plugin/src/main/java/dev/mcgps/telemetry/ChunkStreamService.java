@@ -70,9 +70,25 @@ public class ChunkStreamService {
         for (Player player : Bukkit.getOnlinePlayers()) {
             UUID uuid = player.getUniqueId();
             Location loc = player.getLocation();
+            World world = loc.getWorld();
+            if (world == null) continue;
+            
+            String worldName = world.getName();
             
             // Get or create player's chunk state
             PlayerChunkState state = playerChunkStates.computeIfAbsent(uuid, k -> new PlayerChunkState());
+            
+            // Check if player changed worlds or this is first time tracking them
+            boolean isNewPlayer = state.currentWorld == null;
+            boolean worldChanged = !isNewPlayer && !state.currentWorld.equals(worldName);
+            if (isNewPlayer || worldChanged) {
+                // Emit world change event so client can switch displayed world
+                emitWorldChange(player, worldName);
+            }
+            state.currentWorld = worldName;
+            
+            // Get chunks for current world
+            Set<ChunkCoord> loadedChunks = state.getChunksForWorld(worldName);
             
             // Get the player's current chunk coordinates
             int playerChunkX = loc.getBlockX() >> 4;
@@ -83,7 +99,7 @@ public class ChunkStreamService {
             for (int dx = -CHUNK_RADIUS; dx <= CHUNK_RADIUS; dx++) {
                 for (int dz = -CHUNK_RADIUS; dz <= CHUNK_RADIUS; dz++) {
                     ChunkCoord coord = new ChunkCoord(playerChunkX + dx, playerChunkZ + dz);
-                    if (!state.loadedChunks.contains(coord)) {
+                    if (!loadedChunks.contains(coord)) {
                         // Calculate distance for priority loading (closer chunks first)
                         coord.distanceSq = dx * dx + dz * dz;
                         chunksToLoad.add(coord);
@@ -100,14 +116,14 @@ public class ChunkStreamService {
                 if (chunksLoaded >= CHUNKS_PER_TICK) break;
                 
                 // Stream this chunk
-                streamSingleChunk(player, loc.getWorld(), coord.x, coord.z, loc.getBlockY());
-                state.loadedChunks.add(coord);
+                streamSingleChunk(player, world, coord.x, coord.z, loc.getBlockY());
+                loadedChunks.add(coord);
                 chunksLoaded++;
             }
             
-            // Unload distant chunks
+            // Unload distant chunks (only for current world)
             Set<ChunkCoord> chunksToUnload = new HashSet<>();
-            for (ChunkCoord coord : state.loadedChunks) {
+            for (ChunkCoord coord : loadedChunks) {
                 int dx = coord.x - playerChunkX;
                 int dz = coord.z - playerChunkZ;
                 if (Math.abs(dx) > UNLOAD_CHUNK_RADIUS || Math.abs(dz) > UNLOAD_CHUNK_RADIUS) {
@@ -116,14 +132,25 @@ public class ChunkStreamService {
             }
             
             if (!chunksToUnload.isEmpty()) {
-                state.loadedChunks.removeAll(chunksToUnload);
+                loadedChunks.removeAll(chunksToUnload);
                 // Notify client to unload these chunks
-                emitChunkUnload(player, chunksToUnload);
+                emitChunkUnload(player, world, chunksToUnload);
             }
         }
         
         // Clean up disconnected players
         playerChunkStates.keySet().removeIf(uuid -> Bukkit.getPlayer(uuid) == null);
+    }
+    
+    /**
+     * Emit world change event
+     */
+    private void emitWorldChange(Player player, String newWorld) {
+        String json = String.format(
+            "{\"type\":\"world_change\",\"ts\":%d,\"uuid\":\"%s\",\"world\":\"%s\"}",
+            System.currentTimeMillis(), player.getUniqueId(), escapeJson(newWorld)
+        );
+        plugin.getLogger().info(json);
     }
     
     /**
@@ -226,12 +253,13 @@ public class ChunkStreamService {
     }
     
     /**
-     * Emit chunk unload message
+     * Emit chunk unload message with world name
      */
-    private void emitChunkUnload(Player player, Set<ChunkCoord> chunks) {
+    private void emitChunkUnload(Player player, World world, Set<ChunkCoord> chunks) {
         StringBuilder json = new StringBuilder();
         json.append("{\"type\":\"chunk_unload\",\"ts\":").append(System.currentTimeMillis());
         json.append(",\"uuid\":\"").append(player.getUniqueId()).append("\"");
+        json.append(",\"world\":\"").append(escapeJson(world.getName())).append("\"");
         json.append(",\"chunks\":[");
         
         boolean first = true;
@@ -393,9 +421,14 @@ public class ChunkStreamService {
     }
     
     /**
-     * Tracks which chunks have been sent to a player
+     * Tracks which chunks have been sent to a player per world
      */
     private static class PlayerChunkState {
-        final Set<ChunkCoord> loadedChunks = new HashSet<>();
+        final Map<String, Set<ChunkCoord>> worldChunks = new HashMap<>();
+        String currentWorld = null;
+        
+        Set<ChunkCoord> getChunksForWorld(String worldName) {
+            return worldChunks.computeIfAbsent(worldName, k -> new HashSet<>());
+        }
     }
 }
