@@ -100,11 +100,12 @@ function loadCachedChunks() {
         
         const worldMap = worldChunks.get(worldName);
         chunks.forEach((chunkData, chunkKey) => {
+            // Map from stored format (worldName) to runtime format (world)
             worldMap.set(chunkKey, {
                 chunkX: chunkData.chunkX,
                 chunkZ: chunkData.chunkZ,
                 blocks: chunkData.blocks,
-                world: chunkData.worldName,
+                world: chunkData.worldName,  // worldName from disk -> world in memory
                 ts: chunkData.timestamp
             });
             totalChunks++;
