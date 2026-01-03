@@ -195,8 +195,18 @@ class ChunkCache {
                 
                 if (!stat.isDirectory()) continue;
                 
-                // Reverse sanitization (basic - assumes _ was used as separator)
-                const worldName = worldDir.replace(/_/g, '_');
+                // Load chunk files and read world name from the first chunk's data
+                const files = fs.readdirSync(worldPath);
+                const jsonFiles = files.filter(f => f.endsWith('.json'));
+                
+                if (jsonFiles.length === 0) continue;
+                
+                // Read actual world name from first chunk file
+                const firstChunkPath = path.join(worldPath, jsonFiles[0]);
+                const firstChunkData = JSON.parse(fs.readFileSync(firstChunkPath, 'utf8'));
+                const worldName = firstChunkData.worldName || worldDir;
+                
+                // Now load all chunks using the actual world name
                 const chunks = this.loadWorldChunks(worldName);
                 
                 if (chunks.size > 0) {
@@ -261,7 +271,7 @@ class ChunkCache {
             // Remove world directory if empty
             const remaining = fs.readdirSync(worldDir);
             if (remaining.length === 0) {
-                fs.rmdirSync(worldDir);
+                fs.rmSync(worldDir, { recursive: true });
             }
             
             return deleted;
@@ -300,7 +310,7 @@ class ChunkCache {
                 }
                 
                 // Remove world directory
-                fs.rmdirSync(worldPath);
+                fs.rmSync(worldPath, { recursive: true });
             }
             
             return totalDeleted;

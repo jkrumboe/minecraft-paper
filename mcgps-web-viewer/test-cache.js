@@ -85,7 +85,7 @@ console.log(`  ✓ Chunks cleared: ${clearedCount}`);
 console.log('\nCleaning up test data...');
 cache.clearAll();
 if (fs.existsSync(testCacheDir)) {
-    fs.rmdirSync(testCacheDir, { recursive: true });
+    fs.rmSync(testCacheDir, { recursive: true });
 }
 console.log('  ✓ Test data cleaned up');
 
