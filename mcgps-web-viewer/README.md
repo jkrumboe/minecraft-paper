@@ -13,6 +13,7 @@ Real-time 3D visualization of Minecraft player positions from the McGpsTelemetry
 🌍 **Multi-world Support** - Overworld, Nether, and End dimensions  
 📊 **Player Inventory** - View health, food, XP, armor, and full inventory  
 🔄 **Smooth Interpolation** - Fluid player movement between updates  
+💾 **Persistent Caching** - World state persists across refreshes and restarts (see [CHUNK_CACHE.md](CHUNK_CACHE.md))  
 
 ## Quick Start
 
@@ -79,6 +80,8 @@ Navigate to: **http://localhost:3000**
 - `GET /api/players` - JSON of all current player positions with skin data
 - `GET /api/players/:uuid/skin` - Get skin URL and model type for a player
 - `GET /api/players/:uuid/history` - Position history for a specific player
+- `GET /api/cache/stats` - Get chunk cache statistics
+- `POST /api/cache/clear` - Clear chunk cache (optionally specify `?world=world_name`)
 
 ## Customization
 
