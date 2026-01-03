@@ -2,4 +2,9 @@ node_modules/
 npm-debug.log
 .DS_Store
 chunks/
-textures/
+# Ignore texture PNG files (users extract from their own Minecraft)
+textures/*.png
+textures/*.mcmeta
+# But keep the documentation
+!textures/README.md
+!textures/.gitkeep
