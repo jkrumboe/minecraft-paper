@@ -383,48 +383,139 @@ public class ChunkStreamService {
     private String getSimplifiedBlockType(Material material) {
         String name = material.name().toLowerCase();
         
-        // Water and lava
+        // Water and lava - keep lava as separate type for proper rendering
         if (name.contains("water")) return "water";
-        if (name.contains("lava")) return "stone";
+        if (name.contains("lava")) return "lava";
         
-        // Grass blocks
-        if (name.equals("grass_block")) return "grass";
+        // Grass blocks - use grass_block for proper multi-face texture
+        if (name.equals("grass_block")) return "grass_block";
         
-        // Leaves - keep as separate type for transparency
-        if (name.contains("leaves") || name.contains("azalea")) return "leaves";
+        // Leaves - keep specific types for different colors
+        if (name.contains("azalea_leaves") || name.contains("flowering_azalea")) return "azalea_leaves";
+        if (name.contains("cherry_leaves")) return "cherry_leaves";
+        if (name.contains("birch_leaves")) return "birch_leaves";
+        if (name.contains("spruce_leaves")) return "spruce_leaves";
+        if (name.contains("jungle_leaves")) return "jungle_leaves";
+        if (name.contains("acacia_leaves")) return "acacia_leaves";
+        if (name.contains("dark_oak_leaves")) return "dark_oak_leaves";
+        if (name.contains("mangrove_leaves")) return "mangrove_leaves";
+        if (name.contains("leaves")) return "oak_leaves";
         
         // Short grass, ferns, flowers, etc. - skip (too small to render)
-        if (name.contains("grass") && !name.contains("grass_block")) return "vegetation";
+        if (name.contains("short_grass") || name.contains("tall_grass")) return "vegetation";
         if (name.contains("fern") || name.contains("flower") || name.contains("tulip") ||
             name.contains("dandelion") || name.contains("poppy") || name.contains("orchid") ||
             name.contains("allium") || name.contains("cornflower") || name.contains("lily")) return "vegetation";
         
-        // Dirt and soil
-        if (name.contains("dirt") || name.contains("podzol") || 
-            name.contains("coarse") || name.contains("rooted") || name.contains("mud")) return "dirt";
+        // Dirt and soil variants
+        if (name.equals("coarse_dirt")) return "coarse_dirt";
+        if (name.equals("rooted_dirt")) return "rooted_dirt";
+        if (name.equals("podzol")) return "podzol";
+        if (name.equals("mycelium")) return "mycelium";
+        if (name.contains("mud") && !name.contains("muddy")) return "mud";
+        if (name.contains("dirt")) return "dirt";
         
-        // Sand
+        // Clay
+        if (name.equals("clay")) return "clay";
+        
+        // Terracotta
+        if (name.contains("terracotta")) return name;
+        
+        // Sand variants
+        if (name.equals("red_sand")) return "red_sand";
         if (name.contains("sand") && !name.contains("sandstone")) return "sand";
-        if (name.contains("sandstone")) return "stone";
+        if (name.contains("red_sandstone")) return "red_sandstone";
+        if (name.contains("sandstone")) return "sandstone";
         
         // Gravel
         if (name.contains("gravel")) return "gravel";
         
-        // Wood blocks (logs)
-        if (name.contains("log") || name.contains("stripped") && name.contains("wood")) return "wood";
+        // Wood blocks (logs) - keep specific types
+        if (name.contains("oak_log")) return "oak_log";
+        if (name.contains("birch_log")) return "birch_log";
+        if (name.contains("spruce_log")) return "spruce_log";
+        if (name.contains("jungle_log")) return "jungle_log";
+        if (name.contains("acacia_log")) return "acacia_log";
+        if (name.contains("dark_oak_log")) return "dark_oak_log";
+        if (name.contains("cherry_log")) return "cherry_log";
+        if (name.contains("mangrove_log")) return "mangrove_log";
+        if (name.contains("crimson_stem")) return "crimson_stem";
+        if (name.contains("warped_stem")) return "warped_stem";
+        if (name.contains("log") || (name.contains("stripped") && name.contains("wood"))) return "oak_log";
         
-        // Planks
-        if (name.contains("planks")) return "planks";
+        // Planks - keep specific types
+        if (name.contains("oak_planks")) return "oak_planks";
+        if (name.contains("birch_planks")) return "birch_planks";
+        if (name.contains("spruce_planks")) return "spruce_planks";
+        if (name.contains("jungle_planks")) return "jungle_planks";
+        if (name.contains("acacia_planks")) return "acacia_planks";
+        if (name.contains("dark_oak_planks")) return "dark_oak_planks";
+        if (name.contains("cherry_planks")) return "cherry_planks";
+        if (name.contains("planks")) return "oak_planks";
         
-        // Stone variants
-        if (name.contains("stone") || name.contains("andesite") || 
-            name.contains("diorite") || name.contains("granite") ||
-            name.contains("cobble") || name.contains("bedrock") ||
-            name.contains("deepslate") || name.contains("tuff") ||
-            name.contains("ore")) return "stone";
+        // Stone variants - be more specific
+        if (name.equals("stone")) return "stone";
+        if (name.equals("andesite")) return "andesite";
+        if (name.equals("diorite")) return "diorite";
+        if (name.equals("granite")) return "granite";
+        if (name.contains("cobblestone")) return "cobblestone";
+        if (name.equals("bedrock")) return "bedrock";
+        if (name.contains("deepslate") && name.contains("ore")) return name;
+        if (name.contains("deepslate")) return "deepslate";
+        if (name.contains("tuff")) return "tuff";
         
-        // Snow
+        // Ores - keep specific types
+        if (name.contains("coal_ore")) return "coal_ore";
+        if (name.contains("iron_ore")) return "iron_ore";
+        if (name.contains("gold_ore")) return "gold_ore";
+        if (name.contains("diamond_ore")) return "diamond_ore";
+        if (name.contains("redstone_ore")) return "redstone_ore";
+        if (name.contains("lapis_ore")) return "lapis_ore";
+        if (name.contains("emerald_ore")) return "emerald_ore";
+        if (name.contains("copper_ore")) return "copper_ore";
+        
+        // Nether blocks
+        if (name.equals("netherrack")) return "netherrack";
+        if (name.equals("soul_sand")) return "soul_sand";
+        if (name.equals("soul_soil")) return "soul_soil";
+        if (name.equals("glowstone")) return "glowstone";
+        if (name.equals("magma_block")) return "magma_block";
+        if (name.contains("nether_brick")) return "nether_bricks";
+        if (name.contains("basalt")) return "basalt";
+        if (name.contains("blackstone")) return "blackstone";
+        
+        // End blocks
+        if (name.equals("end_stone")) return "end_stone";
+        if (name.contains("end_stone")) return "end_stone";
+        if (name.contains("purpur")) return "purpur_block";
+        
+        // Obsidian
+        if (name.contains("obsidian")) return "obsidian";
+        
+        // Glass
+        if (name.contains("glass")) return "glass";
+        
+        // Snow and ice
         if (name.contains("snow")) return "snow";
+        if (name.contains("ice")) return "ice";
+        
+        // Prismarine
+        if (name.contains("prismarine")) return "prismarine";
+        
+        // Moss
+        if (name.contains("moss_block")) return "moss_block";
+        
+        // Amethyst
+        if (name.contains("amethyst")) return "amethyst";
+        
+        // Sculk
+        if (name.contains("sculk")) return "sculk";
+        
+        // Dripstone
+        if (name.contains("dripstone")) return "dripstone_block";
+        
+        // Calcite
+        if (name.equals("calcite")) return "calcite";
         
         // Default to stone for other solid blocks
         return "stone";

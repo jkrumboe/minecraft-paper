@@ -835,7 +835,433 @@
             return texture;
         }
         
-        // Generate procedural Minecraft-style textures
+        // ========== MINECRAFT TEXTURE LOADING SYSTEM ==========
+        // This system loads real Minecraft textures from PNG files
+        // Falls back to procedural textures if PNGs are not available
+        
+        const TEXTURES_PATH = '/textures/';
+        // textureLoader already defined above
+        
+        // Map of internal texture names to Minecraft texture filenames
+        // Format: internalName -> minecraft filename (without .png)
+        const TEXTURE_FILE_MAP = {
+            // Grass
+            'grass_top': 'grass_block_top',
+            'grass_side': 'grass_block_side',
+            'grass_side_overlay': 'grass_block_side_overlay',
+            
+            // Dirt variants
+            'dirt': 'dirt',
+            'coarse_dirt': 'coarse_dirt',
+            'rooted_dirt': 'rooted_dirt',
+            'podzol_top': 'podzol_top',
+            'podzol_side': 'podzol_side',
+            'mycelium_top': 'mycelium_top',
+            'mycelium_side': 'mycelium_side',
+            'mud': 'mud',
+            'clay': 'clay',
+            
+            // Stone variants
+            'stone': 'stone',
+            'cobblestone': 'cobblestone',
+            'mossy_cobblestone': 'mossy_cobblestone',
+            'andesite': 'andesite',
+            'diorite': 'diorite',
+            'granite': 'granite',
+            'deepslate': 'deepslate',
+            'tuff': 'tuff',
+            'calcite': 'calcite',
+            'dripstone': 'dripstone_block',
+            'bedrock': 'bedrock',
+            'polished_andesite': 'polished_andesite',
+            'polished_diorite': 'polished_diorite',
+            'polished_granite': 'polished_granite',
+            'polished_deepslate': 'polished_deepslate',
+            'stone_bricks': 'stone_bricks',
+            'mossy_stone_bricks': 'mossy_stone_bricks',
+            'cracked_stone_bricks': 'cracked_stone_bricks',
+            'chiseled_stone_bricks': 'chiseled_stone_bricks',
+            'deepslate_bricks': 'deepslate_bricks',
+            'deepslate_tiles': 'deepslate_tiles',
+            'cobbled_deepslate': 'cobbled_deepslate',
+            
+            // Sand and gravel
+            'sand': 'sand',
+            'red_sand': 'red_sand',
+            'sandstone': 'sandstone',
+            'red_sandstone': 'red_sandstone',
+            'gravel': 'gravel',
+            
+            // Ores
+            'coal_ore': 'coal_ore',
+            'iron_ore': 'iron_ore',
+            'gold_ore': 'gold_ore',
+            'diamond_ore': 'diamond_ore',
+            'redstone_ore': 'redstone_ore',
+            'lapis_ore': 'lapis_ore',
+            'emerald_ore': 'emerald_ore',
+            'copper_ore': 'copper_ore',
+            'nether_gold_ore': 'nether_gold_ore',
+            'nether_quartz_ore': 'nether_quartz_ore',
+            'deepslate_coal_ore': 'deepslate_coal_ore',
+            'deepslate_iron_ore': 'deepslate_iron_ore',
+            'deepslate_gold_ore': 'deepslate_gold_ore',
+            'deepslate_diamond_ore': 'deepslate_diamond_ore',
+            'deepslate_redstone_ore': 'deepslate_redstone_ore',
+            'deepslate_lapis_ore': 'deepslate_lapis_ore',
+            'deepslate_emerald_ore': 'deepslate_emerald_ore',
+            'deepslate_copper_ore': 'deepslate_copper_ore',
+            
+            // Wood - Oak
+            'wood_side': 'oak_log',
+            'wood_top': 'oak_log_top',
+            'planks': 'oak_planks',
+            'leaves': 'oak_leaves',
+            
+            // Wood - Birch
+            'birch_log_side': 'birch_log',
+            'birch_log_top': 'birch_log_top',
+            'birch_planks': 'birch_planks',
+            'birch_leaves': 'birch_leaves',
+            
+            // Wood - Spruce
+            'spruce_log_side': 'spruce_log',
+            'spruce_log_top': 'spruce_log_top',
+            'spruce_planks': 'spruce_planks',
+            'spruce_leaves': 'spruce_leaves',
+            
+            // Wood - Jungle
+            'jungle_log_side': 'jungle_log',
+            'jungle_log_top': 'jungle_log_top',
+            'jungle_planks': 'jungle_planks',
+            'jungle_leaves': 'jungle_leaves',
+            
+            // Wood - Acacia
+            'acacia_log_side': 'acacia_log',
+            'acacia_log_top': 'acacia_log_top',
+            'acacia_planks': 'acacia_planks',
+            'acacia_leaves': 'acacia_leaves',
+            
+            // Wood - Dark Oak
+            'dark_oak_log_side': 'dark_oak_log',
+            'dark_oak_log_top': 'dark_oak_log_top',
+            'dark_oak_planks': 'dark_oak_planks',
+            'dark_oak_leaves': 'dark_oak_leaves',
+            
+            // Wood - Cherry
+            'cherry_log_side': 'cherry_log',
+            'cherry_log_top': 'cherry_log_top',
+            'cherry_planks': 'cherry_planks',
+            'cherry_leaves': 'cherry_leaves',
+            
+            // Wood - Mangrove
+            'mangrove_log_side': 'mangrove_log',
+            'mangrove_log_top': 'mangrove_log_top',
+            'mangrove_planks': 'mangrove_planks',
+            'mangrove_leaves': 'mangrove_leaves',
+            
+            // Wood - Azalea
+            'azalea_leaves': 'azalea_leaves',
+            'flowering_azalea_leaves': 'flowering_azalea_leaves',
+            
+            // Wood - Nether
+            'crimson_stem': 'crimson_stem',
+            'crimson_stem_top': 'crimson_stem_top',
+            'crimson_planks': 'crimson_planks',
+            'warped_stem': 'warped_stem',
+            'warped_stem_top': 'warped_stem_top',
+            'warped_planks': 'warped_planks',
+            
+            // Wood - Bamboo
+            'bamboo_planks': 'bamboo_planks',
+            'bamboo_block': 'bamboo_block',
+            'bamboo_block_top': 'bamboo_block_top',
+            
+            // Liquids
+            'water': 'water_still',
+            'lava': 'lava_still',
+            
+            // Nether blocks
+            'netherrack': 'netherrack',
+            'soul_sand': 'soul_sand',
+            'soul_soil': 'soul_soil',
+            'glowstone': 'glowstone',
+            'magma_block': 'magma',
+            'basalt': 'basalt_side',
+            'basalt_top': 'basalt_top',
+            'smooth_basalt': 'smooth_basalt',
+            'blackstone': 'blackstone',
+            'blackstone_top': 'blackstone_top',
+            'polished_blackstone': 'polished_blackstone',
+            'polished_blackstone_bricks': 'polished_blackstone_bricks',
+            'nether_bricks': 'nether_bricks',
+            'red_nether_bricks': 'red_nether_bricks',
+            'chiseled_nether_bricks': 'chiseled_nether_bricks',
+            'cracked_nether_bricks': 'cracked_nether_bricks',
+            'nether_wart_block': 'nether_wart_block',
+            'warped_wart_block': 'warped_wart_block',
+            'shroomlight': 'shroomlight',
+            'crying_obsidian': 'crying_obsidian',
+            
+            // End blocks
+            'end_stone': 'end_stone',
+            'end_stone_bricks': 'end_stone_bricks',
+            'purpur': 'purpur_block',
+            'purpur_pillar': 'purpur_pillar',
+            
+            // Special blocks
+            'obsidian': 'obsidian',
+            'glass': 'glass',
+            'tinted_glass': 'tinted_glass',
+            'ice': 'ice',
+            'packed_ice': 'packed_ice',
+            'blue_ice': 'blue_ice',
+            'snow': 'snow',
+            'powder_snow': 'powder_snow',
+            
+            // Building blocks
+            'bricks': 'bricks',
+            
+            // Metal/Gem blocks
+            'iron_block': 'iron_block',
+            'gold_block': 'gold_block',
+            'diamond_block': 'diamond_block',
+            'emerald_block': 'emerald_block',
+            'lapis_block': 'lapis_block',
+            'redstone_block': 'redstone_block',
+            'netherite_block': 'netherite_block',
+            'copper_block': 'copper_block',
+            'coal_block': 'coal_block',
+            'raw_iron_block': 'raw_iron_block',
+            'raw_gold_block': 'raw_gold_block',
+            'raw_copper_block': 'raw_copper_block',
+            
+            // Functional blocks
+            'crafting_top': 'crafting_table_top',
+            'crafting_side': 'crafting_table_side',
+            'crafting_front': 'crafting_table_front',
+            'furnace_front': 'furnace_front',
+            'furnace_front_on': 'furnace_front_on',
+            'furnace_side': 'furnace_side',
+            'furnace_top': 'furnace_top',
+            'blast_furnace_front': 'blast_furnace_front',
+            'blast_furnace_side': 'blast_furnace_side',
+            'blast_furnace_top': 'blast_furnace_top',
+            'smoker_front': 'smoker_front',
+            'smoker_side': 'smoker_side',
+            'smoker_top': 'smoker_top',
+            'tnt_side': 'tnt_side',
+            'tnt_top': 'tnt_top',
+            'tnt_bottom': 'tnt_bottom',
+            'bookshelf': 'bookshelf',
+            'jukebox_side': 'jukebox_side',
+            'jukebox_top': 'jukebox_top',
+            
+            // Natural
+            'moss_block': 'moss_block',
+            'prismarine': 'prismarine',
+            'prismarine_bricks': 'prismarine_bricks',
+            'dark_prismarine': 'dark_prismarine',
+            'amethyst': 'amethyst_block',
+            'budding_amethyst': 'budding_amethyst',
+            'sculk': 'sculk',
+            'sculk_catalyst_side': 'sculk_catalyst_side',
+            'sculk_catalyst_top': 'sculk_catalyst_top',
+            'sculk_sensor_side': 'sculk_sensor_side',
+            'sculk_sensor_top': 'sculk_sensor_top',
+            
+            // Terracotta
+            'terracotta': 'terracotta',
+            'white_terracotta': 'white_terracotta',
+            'orange_terracotta': 'orange_terracotta',
+            'magenta_terracotta': 'magenta_terracotta',
+            'light_blue_terracotta': 'light_blue_terracotta',
+            'yellow_terracotta': 'yellow_terracotta',
+            'lime_terracotta': 'lime_terracotta',
+            'pink_terracotta': 'pink_terracotta',
+            'gray_terracotta': 'gray_terracotta',
+            'light_gray_terracotta': 'light_gray_terracotta',
+            'cyan_terracotta': 'cyan_terracotta',
+            'purple_terracotta': 'purple_terracotta',
+            'blue_terracotta': 'blue_terracotta',
+            'brown_terracotta': 'brown_terracotta',
+            'green_terracotta': 'green_terracotta',
+            'red_terracotta': 'red_terracotta',
+            'black_terracotta': 'black_terracotta',
+            
+            // Concrete
+            'white_concrete': 'white_concrete',
+            'orange_concrete': 'orange_concrete',
+            'magenta_concrete': 'magenta_concrete',
+            'light_blue_concrete': 'light_blue_concrete',
+            'yellow_concrete': 'yellow_concrete',
+            'lime_concrete': 'lime_concrete',
+            'pink_concrete': 'pink_concrete',
+            'gray_concrete': 'gray_concrete',
+            'light_gray_concrete': 'light_gray_concrete',
+            'cyan_concrete': 'cyan_concrete',
+            'purple_concrete': 'purple_concrete',
+            'blue_concrete': 'blue_concrete',
+            'brown_concrete': 'brown_concrete',
+            'green_concrete': 'green_concrete',
+            'red_concrete': 'red_concrete',
+            'black_concrete': 'black_concrete',
+            
+            // Wool
+            'white_wool': 'white_wool',
+            'orange_wool': 'orange_wool',
+            'magenta_wool': 'magenta_wool',
+            'light_blue_wool': 'light_blue_wool',
+            'yellow_wool': 'yellow_wool',
+            'lime_wool': 'lime_wool',
+            'pink_wool': 'pink_wool',
+            'gray_wool': 'gray_wool',
+            'light_gray_wool': 'light_gray_wool',
+            'cyan_wool': 'cyan_wool',
+            'purple_wool': 'purple_wool',
+            'blue_wool': 'blue_wool',
+            'brown_wool': 'brown_wool',
+            'green_wool': 'green_wool',
+            'red_wool': 'red_wool',
+            'black_wool': 'black_wool',
+            
+            // Stained glass
+            'white_stained_glass': 'white_stained_glass',
+            'orange_stained_glass': 'orange_stained_glass',
+            'magenta_stained_glass': 'magenta_stained_glass',
+            'light_blue_stained_glass': 'light_blue_stained_glass',
+            'yellow_stained_glass': 'yellow_stained_glass',
+            'lime_stained_glass': 'lime_stained_glass',
+            'pink_stained_glass': 'pink_stained_glass',
+            'gray_stained_glass': 'gray_stained_glass',
+            'light_gray_stained_glass': 'light_gray_stained_glass',
+            'cyan_stained_glass': 'cyan_stained_glass',
+            'purple_stained_glass': 'purple_stained_glass',
+            'blue_stained_glass': 'blue_stained_glass',
+            'brown_stained_glass': 'brown_stained_glass',
+            'green_stained_glass': 'green_stained_glass',
+            'red_stained_glass': 'red_stained_glass',
+            'black_stained_glass': 'black_stained_glass',
+            
+            // Misc blocks
+            'pumpkin_side': 'pumpkin_side',
+            'pumpkin_top': 'pumpkin_top',
+            'carved_pumpkin': 'carved_pumpkin',
+            'jack_o_lantern': 'jack_o_lantern',
+            'melon_side': 'melon_side',
+            'melon_top': 'melon_top',
+            'hay_block_side': 'hay_block_side',
+            'hay_block_top': 'hay_block_top',
+            'bone_block_side': 'bone_block_side',
+            'bone_block_top': 'bone_block_top',
+            'sponge': 'sponge',
+            'wet_sponge': 'wet_sponge',
+            'slime_block': 'slime_block',
+            'honey_block_side': 'honey_block_side',
+            'honey_block_top': 'honey_block_top',
+            'honeycomb_block': 'honeycomb_block',
+            'sea_lantern': 'sea_lantern',
+            'redstone_lamp': 'redstone_lamp',
+            'redstone_lamp_on': 'redstone_lamp_on',
+            
+            // Mushroom blocks
+            'red_mushroom_block': 'red_mushroom_block',
+            'brown_mushroom_block': 'brown_mushroom_block',
+            'mushroom_stem': 'mushroom_stem',
+            'red_mushroom': 'red_mushroom',
+            'brown_mushroom': 'brown_mushroom',
+            
+            // Natural blocks
+            'vine': 'vine',
+            'lily_pad': 'lily_pad',
+            'cactus_side': 'cactus_side',
+            'cactus_top': 'cactus_top',
+            'cactus_bottom': 'cactus_bottom',
+            'sugar_cane': 'sugar_cane',
+            'bamboo_stalk': 'bamboo_stalk',
+            'dead_bush': 'dead_bush',
+            'fern': 'fern',
+            'short_grass': 'short_grass',
+            
+            // Flowers
+            'dandelion': 'dandelion',
+            'poppy': 'poppy',
+            'blue_orchid': 'blue_orchid',
+            'allium': 'allium',
+            'azure_bluet': 'azure_bluet',
+            'red_tulip': 'red_tulip',
+            'orange_tulip': 'orange_tulip',
+            'white_tulip': 'white_tulip',
+            'pink_tulip': 'pink_tulip',
+            'oxeye_daisy': 'oxeye_daisy',
+            'cornflower': 'cornflower',
+            'lily_of_the_valley': 'lily_of_the_valley',
+            'wither_rose': 'wither_rose',
+            'torchflower': 'torchflower',
+            
+            // Coral blocks
+            'tube_coral_block': 'tube_coral_block',
+            'brain_coral_block': 'brain_coral_block',
+            'bubble_coral_block': 'bubble_coral_block',
+            'fire_coral_block': 'fire_coral_block',
+            'horn_coral_block': 'horn_coral_block',
+            'dead_tube_coral_block': 'dead_tube_coral_block',
+            'dead_brain_coral_block': 'dead_brain_coral_block',
+            'dead_bubble_coral_block': 'dead_bubble_coral_block',
+            'dead_fire_coral_block': 'dead_fire_coral_block',
+            'dead_horn_coral_block': 'dead_horn_coral_block',
+            
+            // Utility blocks
+            'spawner': 'spawner',
+            'cobweb': 'cobweb',
+            'torch': 'torch',
+            'lantern': 'lantern',
+            'soul_lantern': 'soul_lantern',
+            'chain': 'chain',
+            'ladder': 'ladder',
+            'rail': 'rail',
+            'powered_rail': 'powered_rail',
+            'detector_rail': 'detector_rail',
+            'activator_rail': 'activator_rail',
+        };
+        
+        // Track which textures loaded successfully
+        const loadedRealTextures = new Set();
+        const failedTextures = new Set();
+        
+        // Load a real texture with fallback
+        function loadRealTexture(internalName) {
+            return new Promise((resolve) => {
+                const filename = TEXTURE_FILE_MAP[internalName];
+                if (!filename) {
+                    resolve(null); // No mapping, use procedural
+                    return;
+                }
+                
+                const url = `${TEXTURES_PATH}${filename}.png`;
+                textureLoader.load(
+                    url,
+                    (texture) => {
+                        // Success - configure texture for pixel art
+                        texture.magFilter = THREE.NearestFilter;
+                        texture.minFilter = THREE.NearestFilter;
+                        texture.wrapS = THREE.RepeatWrapping;
+                        texture.wrapT = THREE.RepeatWrapping;
+                        texture.colorSpace = THREE.SRGBColorSpace;
+                        loadedRealTextures.add(internalName);
+                        resolve(texture);
+                    },
+                    undefined, // Progress callback (not used)
+                    () => {
+                        // Error - texture file not found
+                        failedTextures.add(internalName);
+                        resolve(null);
+                    }
+                );
+            });
+        }
+        
+        // Generate procedural Minecraft-style textures (fallback)
         function generateBlockTextures() {
             const textures = {};
             
@@ -1463,88 +1889,858 @@
                 addNoise(ctx, null, 20, size);
             });
             
+            // ========== LAVA TEXTURE ==========
+            textures.lava = createTexture((ctx, size) => {
+                // Base bright orange-red
+                ctx.fillStyle = '#CF4B00';
+                ctx.fillRect(0, 0, size, size);
+                // Add flowing lava pattern with bright spots
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const wave = Math.sin((x + y) * 0.4) * 30;
+                        const noise = Math.random() * 40 - 20;
+                        const brightness = wave + noise;
+                        // Create hotspots (yellow/white) and darker areas
+                        if (Math.random() > 0.85) {
+                            ctx.fillStyle = `rgb(${255}, ${200 + Math.random() * 55}, ${50})`;
+                        } else {
+                            const r = Math.min(255, Math.max(150, 207 + brightness));
+                            const g = Math.min(150, Math.max(30, 75 + brightness * 0.5));
+                            const b = Math.max(0, brightness * 0.2);
+                            ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                        }
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== MAGMA BLOCK ==========
+            textures.magma_block = createTexture((ctx, size) => {
+                // Dark basalt-like base
+                ctx.fillStyle = '#2B1B1B';
+                ctx.fillRect(0, 0, size, size);
+                // Add glowing cracks
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const crack = (Math.sin(x * 0.8) + Math.sin(y * 0.8) + Math.random() * 2);
+                        if (crack > 2.5) {
+                            const glow = Math.random() * 50;
+                            ctx.fillStyle = `rgb(${200 + glow}, ${80 + glow * 0.3}, ${20})`;
+                        } else {
+                            const shade = Math.random() * 20 - 10;
+                            ctx.fillStyle = `rgb(${43 + shade}, ${27 + shade}, ${27 + shade})`;
+                        }
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== CLAY ==========
+            textures.clay = createTexture((ctx, size) => {
+                ctx.fillStyle = '#9BA4B5';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 20 - 10;
+                        ctx.fillStyle = `rgb(${155 + shade}, ${164 + shade}, ${181 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== MUD ==========
+            textures.mud = createTexture((ctx, size) => {
+                ctx.fillStyle = '#3C3424';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 25 - 12;
+                        ctx.fillStyle = `rgb(${60 + shade}, ${52 + shade}, ${36 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== PODZOL ==========
+            textures.podzol_top = createTexture((ctx, size) => {
+                ctx.fillStyle = '#6B4423';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 25 - 12;
+                        ctx.fillStyle = `rgb(${107 + shade}, ${68 + shade}, ${35 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            textures.podzol_side = createTexture((ctx, size) => {
+                // Dirt base
+                ctx.fillStyle = '#8B6F47';
+                ctx.fillRect(0, 0, size, size);
+                addNoise(ctx, null, 15, size);
+                // Podzol top edge (dark brown)
+                for (let x = 0; x < size; x++) {
+                    const height = Math.floor(Math.random() * 3) + 1;
+                    for (let y = 0; y < height; y++) {
+                        ctx.fillStyle = `rgb(${97 + Math.random()*20}, ${58 + Math.random()*20}, ${25 + Math.random()*10})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== MYCELIUM ==========
+            textures.mycelium_top = createTexture((ctx, size) => {
+                ctx.fillStyle = '#8D7D8A';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 20 - 10;
+                        // Purple-gray tint
+                        ctx.fillStyle = `rgb(${141 + shade}, ${125 + shade}, ${138 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            textures.mycelium_side = createTexture((ctx, size) => {
+                ctx.fillStyle = '#8B6F47';
+                ctx.fillRect(0, 0, size, size);
+                addNoise(ctx, null, 15, size);
+                // Mycelium top edge
+                for (let x = 0; x < size; x++) {
+                    const height = Math.floor(Math.random() * 3) + 1;
+                    for (let y = 0; y < height; y++) {
+                        ctx.fillStyle = `rgb(${131 + Math.random()*20}, ${115 + Math.random()*20}, ${128 + Math.random()*10})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== RED SAND ==========
+            textures.red_sand = createTexture((ctx, size) => {
+                ctx.fillStyle = '#A85432';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 25 - 12;
+                        ctx.fillStyle = `rgb(${168 + shade}, ${84 + shade}, ${50 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== SANDSTONE ==========
+            textures.sandstone = createTexture((ctx, size) => {
+                ctx.fillStyle = '#D9C797';
+                ctx.fillRect(0, 0, size, size);
+                // Add layers
+                for (let y = 0; y < size; y++) {
+                    const lineShade = (y % 3 === 0) ? -15 : 0;
+                    for (let x = 0; x < size; x++) {
+                        const shade = lineShade + Math.random() * 15 - 7;
+                        ctx.fillStyle = `rgb(${217 + shade}, ${199 + shade}, ${151 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== RED SANDSTONE ==========
+            textures.red_sandstone = createTexture((ctx, size) => {
+                ctx.fillStyle = '#A85432';
+                ctx.fillRect(0, 0, size, size);
+                for (let y = 0; y < size; y++) {
+                    const lineShade = (y % 3 === 0) ? -15 : 0;
+                    for (let x = 0; x < size; x++) {
+                        const shade = lineShade + Math.random() * 15 - 7;
+                        ctx.fillStyle = `rgb(${168 + shade}, ${84 + shade}, ${50 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== ANDESITE ==========
+            textures.andesite = createTexture((ctx, size) => {
+                ctx.fillStyle = '#8A8A8A';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 25 - 12;
+                        ctx.fillStyle = `rgb(${138 + shade}, ${138 + shade}, ${138 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== DIORITE ==========
+            textures.diorite = createTexture((ctx, size) => {
+                ctx.fillStyle = '#C0C0C0';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        if (Math.random() > 0.5) {
+                            ctx.fillStyle = `rgb(${220 + Math.random()*20}, ${220 + Math.random()*20}, ${220 + Math.random()*20})`;
+                        } else {
+                            ctx.fillStyle = `rgb(${170 + Math.random()*20}, ${170 + Math.random()*20}, ${170 + Math.random()*20})`;
+                        }
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== GRANITE ==========
+            textures.granite = createTexture((ctx, size) => {
+                ctx.fillStyle = '#9D7355';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 30 - 15;
+                        if (Math.random() > 0.7) {
+                            ctx.fillStyle = `rgb(${140 + shade}, ${100 + shade}, ${80 + shade})`;
+                        } else {
+                            ctx.fillStyle = `rgb(${157 + shade}, ${115 + shade}, ${85 + shade})`;
+                        }
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== TUFF ==========
+            textures.tuff = createTexture((ctx, size) => {
+                ctx.fillStyle = '#6B6B5C';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 20 - 10;
+                        ctx.fillStyle = `rgb(${107 + shade}, ${107 + shade}, ${92 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== CALCITE ==========
+            textures.calcite = createTexture((ctx, size) => {
+                ctx.fillStyle = '#E8E4DA';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 15 - 7;
+                        ctx.fillStyle = `rgb(${232 + shade}, ${228 + shade}, ${218 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== DRIPSTONE ==========
+            textures.dripstone = createTexture((ctx, size) => {
+                ctx.fillStyle = '#8B7355';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 25 - 12;
+                        ctx.fillStyle = `rgb(${139 + shade}, ${115 + shade}, ${85 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== BASALT ==========
+            textures.basalt = createTexture((ctx, size) => {
+                ctx.fillStyle = '#3B3B3B';
+                ctx.fillRect(0, 0, size, size);
+                // Columnar pattern
+                for (let x = 0; x < size; x += 3) {
+                    for (let y = 0; y < size; y++) {
+                        ctx.fillStyle = '#2B2B2B';
+                        ctx.fillRect(x, y, 1, size);
+                    }
+                }
+                addNoise(ctx, null, 15, size);
+            });
+            
+            // ========== BLACKSTONE ==========
+            textures.blackstone = createTexture((ctx, size) => {
+                ctx.fillStyle = '#2A2327';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 20 - 10;
+                        ctx.fillStyle = `rgb(${42 + shade}, ${35 + shade}, ${39 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== MOSS BLOCK ==========
+            textures.moss_block = createTexture((ctx, size) => {
+                ctx.fillStyle = '#4A6B2A';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 30 - 15;
+                        ctx.fillStyle = `rgb(${74 + shade}, ${107 + shade}, ${42 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== PRISMARINE ==========
+            textures.prismarine = createTexture((ctx, size) => {
+                ctx.fillStyle = '#4A9D8C';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 30 - 15;
+                        // Teal/aqua color shifting
+                        ctx.fillStyle = `rgb(${74 + shade}, ${157 + shade}, ${140 + shade * 0.5})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== AMETHYST ==========
+            textures.amethyst = createTexture((ctx, size) => {
+                ctx.fillStyle = '#8464A8';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 30 - 15;
+                        ctx.fillStyle = `rgb(${132 + shade}, ${100 + shade}, ${168 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== SCULK ==========
+            textures.sculk = createTexture((ctx, size) => {
+                ctx.fillStyle = '#0D2F3F';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 20 - 10;
+                        // Dark teal with bright spots
+                        if (Math.random() > 0.9) {
+                            ctx.fillStyle = `rgb(${20 + shade}, ${140}, ${180})`;
+                        } else {
+                            ctx.fillStyle = `rgb(${13 + shade}, ${47 + shade}, ${63 + shade})`;
+                        }
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== ICE ==========
+            textures.ice = createTexture((ctx, size) => {
+                ctx.fillStyle = '#91D5FF';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 20 - 10;
+                        ctx.fillStyle = `rgba(${145 + shade}, ${213 + shade * 0.5}, ${255}, 0.85)`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== PACKED ICE ==========
+            textures.packed_ice = createTexture((ctx, size) => {
+                ctx.fillStyle = '#7CB3D8';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 25 - 12;
+                        ctx.fillStyle = `rgb(${124 + shade}, ${179 + shade * 0.5}, ${216 + shade * 0.3})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== BLUE ICE ==========
+            textures.blue_ice = createTexture((ctx, size) => {
+                ctx.fillStyle = '#5884C5';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 25 - 12;
+                        ctx.fillStyle = `rgb(${88 + shade}, ${132 + shade}, ${197 + shade * 0.5})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== PURPUR ==========
+            textures.purpur = createTexture((ctx, size) => {
+                ctx.fillStyle = '#A77BA7';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        const shade = Math.random() * 20 - 10;
+                        ctx.fillStyle = `rgb(${167 + shade}, ${123 + shade}, ${167 + shade})`;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            });
+            
+            // ========== BIRCH LOG SIDE ==========
+            textures.birch_log_side = createTexture((ctx, size) => {
+                ctx.fillStyle = '#E8E4D4';
+                ctx.fillRect(0, 0, size, size);
+                // Dark horizontal bands
+                for (let y = 0; y < size; y++) {
+                    if (Math.random() > 0.7) {
+                        for (let x = 0; x < size; x++) {
+                            ctx.fillStyle = '#444444';
+                            ctx.fillRect(x, y, Math.floor(Math.random() * 4) + 1, 1);
+                        }
+                    }
+                }
+                addNoise(ctx, null, 10, size);
+            });
+            
+            // ========== BIRCH LOG TOP ==========
+            textures.birch_log_top = createTexture((ctx, size) => {
+                ctx.fillStyle = '#C4B77D';
+                ctx.fillRect(0, 0, size, size);
+                const cx = size / 2, cy = size / 2;
+                for (let r = 1; r < size / 2; r += 2) {
+                    ctx.strokeStyle = r % 4 < 2 ? '#A89860' : '#B4A770';
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            });
+            
+            // ========== SPRUCE LOG ==========
+            textures.spruce_log_side = createTexture((ctx, size) => {
+                ctx.fillStyle = '#4B3621';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    if (x % 4 < 2) {
+                        for (let y = 0; y < size; y++) {
+                            const shade = Math.random() * 15 - 7;
+                            ctx.fillStyle = `rgb(${55 + shade}, ${40 + shade}, ${23 + shade})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        }
+                    }
+                }
+                addNoise(ctx, null, 8, size);
+            });
+            
+            // ========== JUNGLE LOG ==========
+            textures.jungle_log_side = createTexture((ctx, size) => {
+                ctx.fillStyle = '#5B4830';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    if (x % 3 < 1) {
+                        for (let y = 0; y < size; y++) {
+                            ctx.fillStyle = `rgb(${71 + Math.random()*10}, ${56 + Math.random()*10}, ${38 + Math.random()*5})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        }
+                    }
+                }
+                addNoise(ctx, null, 10, size);
+            });
+            
+            // ========== ACACIA LOG ==========
+            textures.acacia_log_side = createTexture((ctx, size) => {
+                ctx.fillStyle = '#6B5839';
+                ctx.fillRect(0, 0, size, size);
+                // Diagonal bark pattern
+                for (let i = 0; i < size * 2; i += 4) {
+                    ctx.strokeStyle = '#4B3819';
+                    ctx.beginPath();
+                    ctx.moveTo(i, 0);
+                    ctx.lineTo(0, i);
+                    ctx.stroke();
+                }
+                addNoise(ctx, null, 12, size);
+            });
+            
+            // ========== DARK OAK LOG ==========
+            textures.dark_oak_log_side = createTexture((ctx, size) => {
+                ctx.fillStyle = '#3D2815';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    if (x % 4 < 2) {
+                        for (let y = 0; y < size; y++) {
+                            const shade = Math.random() * 15 - 7;
+                            ctx.fillStyle = `rgb(${51 + shade}, ${30 + shade}, ${11 + shade})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        }
+                    }
+                }
+                addNoise(ctx, null, 8, size);
+            });
+            
+            // ========== CHERRY LOG ==========
+            textures.cherry_log_side = createTexture((ctx, size) => {
+                ctx.fillStyle = '#DDA0A0';
+                ctx.fillRect(0, 0, size, size);
+                for (let y = 0; y < size; y += 3) {
+                    ctx.fillStyle = '#C08080';
+                    ctx.fillRect(0, y, size, 1);
+                }
+                addNoise(ctx, null, 10, size);
+            });
+            
+            // ========== CRIMSON STEM ==========
+            textures.crimson_stem = createTexture((ctx, size) => {
+                ctx.fillStyle = '#6B2D3D';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    if (x % 3 === 0) {
+                        for (let y = 0; y < size; y++) {
+                            ctx.fillStyle = `rgb(${87 + Math.random()*20}, ${35 + Math.random()*10}, ${51 + Math.random()*10})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        }
+                    }
+                }
+                addNoise(ctx, null, 10, size);
+            });
+            
+            // ========== WARPED STEM ==========
+            textures.warped_stem = createTexture((ctx, size) => {
+                ctx.fillStyle = '#3A6B6B';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    if (x % 3 === 0) {
+                        for (let y = 0; y < size; y++) {
+                            ctx.fillStyle = `rgb(${48 + Math.random()*15}, ${97 + Math.random()*20}, ${97 + Math.random()*20})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        }
+                    }
+                }
+                addNoise(ctx, null, 10, size);
+            });
+            
+            // ========== BIRCH LEAVES ==========
+            textures.birch_leaves = createTexture((ctx, size) => {
+                ctx.fillStyle = '#6BA839';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        if (Math.random() > 0.15) {
+                            const shade = Math.random() * 35 - 17;
+                            ctx.fillStyle = `rgb(${107 + shade}, ${168 + shade}, ${57 + shade})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        } else {
+                            ctx.clearRect(x, y, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // ========== SPRUCE LEAVES ==========
+            textures.spruce_leaves = createTexture((ctx, size) => {
+                ctx.fillStyle = '#3D5A32';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        if (Math.random() > 0.15) {
+                            const shade = Math.random() * 30 - 15;
+                            ctx.fillStyle = `rgb(${61 + shade}, ${90 + shade}, ${50 + shade})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        } else {
+                            ctx.clearRect(x, y, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // ========== JUNGLE LEAVES ==========
+            textures.jungle_leaves = createTexture((ctx, size) => {
+                ctx.fillStyle = '#30A020';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        if (Math.random() > 0.15) {
+                            const shade = Math.random() * 35 - 17;
+                            ctx.fillStyle = `rgb(${48 + shade}, ${160 + shade}, ${32 + shade})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        } else {
+                            ctx.clearRect(x, y, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // ========== ACACIA LEAVES ==========
+            textures.acacia_leaves = createTexture((ctx, size) => {
+                ctx.fillStyle = '#6EA040';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        if (Math.random() > 0.15) {
+                            const shade = Math.random() * 35 - 17;
+                            ctx.fillStyle = `rgb(${110 + shade}, ${160 + shade}, ${64 + shade})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        } else {
+                            ctx.clearRect(x, y, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // ========== DARK OAK LEAVES ==========
+            textures.dark_oak_leaves = createTexture((ctx, size) => {
+                ctx.fillStyle = '#2D6B2D';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        if (Math.random() > 0.15) {
+                            const shade = Math.random() * 30 - 15;
+                            ctx.fillStyle = `rgb(${45 + shade}, ${107 + shade}, ${45 + shade})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        } else {
+                            ctx.clearRect(x, y, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // ========== CHERRY LEAVES ==========
+            textures.cherry_leaves = createTexture((ctx, size) => {
+                ctx.fillStyle = '#FFB7C5';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        if (Math.random() > 0.2) {
+                            const shade = Math.random() * 30 - 15;
+                            ctx.fillStyle = `rgb(${255}, ${183 + shade}, ${197 + shade})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        } else {
+                            ctx.clearRect(x, y, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // ========== AZALEA LEAVES ==========
+            textures.azalea_leaves = createTexture((ctx, size) => {
+                ctx.fillStyle = '#5A8B3A';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        if (Math.random() > 0.15) {
+                            const shade = Math.random() * 30 - 15;
+                            // Occasional flower spots
+                            if (Math.random() > 0.9) {
+                                ctx.fillStyle = `rgb(${200 + shade}, ${150 + shade}, ${200 + shade})`;
+                            } else {
+                                ctx.fillStyle = `rgb(${90 + shade}, ${139 + shade}, ${58 + shade})`;
+                            }
+                            ctx.fillRect(x, y, 1, 1);
+                        } else {
+                            ctx.clearRect(x, y, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // ========== MANGROVE LEAVES ==========
+            textures.mangrove_leaves = createTexture((ctx, size) => {
+                ctx.fillStyle = '#4A7B2A';
+                ctx.fillRect(0, 0, size, size);
+                for (let x = 0; x < size; x++) {
+                    for (let y = 0; y < size; y++) {
+                        if (Math.random() > 0.15) {
+                            const shade = Math.random() * 35 - 17;
+                            ctx.fillStyle = `rgb(${74 + shade}, ${123 + shade}, ${42 + shade})`;
+                            ctx.fillRect(x, y, 1, 1);
+                        } else {
+                            ctx.clearRect(x, y, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // ========== BIRCH PLANKS ==========
+            textures.birch_planks = createTexture((ctx, size) => {
+                ctx.fillStyle = '#C4B77D';
+                ctx.fillRect(0, 0, size, size);
+                for (let y = 0; y < size; y += 4) {
+                    ctx.fillStyle = '#A49960';
+                    ctx.fillRect(0, y, size, 1);
+                    for (let x = 0; x < size; x++) {
+                        for (let dy = 1; dy < 4 && y + dy < size; dy++) {
+                            const shade = Math.random() * 15 - 7;
+                            ctx.fillStyle = `rgb(${196 + shade}, ${183 + shade}, ${125 + shade})`;
+                            ctx.fillRect(x, y + dy, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // ========== SPRUCE PLANKS ==========
+            textures.spruce_planks = createTexture((ctx, size) => {
+                ctx.fillStyle = '#6B5837';
+                ctx.fillRect(0, 0, size, size);
+                for (let y = 0; y < size; y += 4) {
+                    ctx.fillStyle = '#4B3817';
+                    ctx.fillRect(0, y, size, 1);
+                    for (let x = 0; x < size; x++) {
+                        for (let dy = 1; dy < 4 && y + dy < size; dy++) {
+                            const shade = Math.random() * 15 - 7;
+                            ctx.fillStyle = `rgb(${107 + shade}, ${88 + shade}, ${55 + shade})`;
+                            ctx.fillRect(x, y + dy, 1, 1);
+                        }
+                    }
+                }
+            });
+            
+            // ========== DARK OAK PLANKS ==========
+            textures.dark_oak_planks = createTexture((ctx, size) => {
+                ctx.fillStyle = '#3D2814';
+                ctx.fillRect(0, 0, size, size);
+                for (let y = 0; y < size; y += 4) {
+                    ctx.fillStyle = '#2D1804';
+                    ctx.fillRect(0, y, size, 1);
+                    for (let x = 0; x < size; x++) {
+                        for (let dy = 1; dy < 4 && y + dy < size; dy++) {
+                            const shade = Math.random() * 15 - 7;
+                            ctx.fillStyle = `rgb(${61 + shade}, ${40 + shade}, ${20 + shade})`;
+                            ctx.fillRect(x, y + dy, 1, 1);
+                        }
+                    }
+                }
+            });
+            
             return textures;
         }
         
-        // Generate all textures
+        // Generate procedural textures first (as fallback)
         const blockTextures = generateBlockTextures();
         console.log('✓ Generated procedural block textures:', Object.keys(blockTextures).length);
+        
+        // Async function to load real textures and override procedural ones
+        async function loadAllRealTextures() {
+            console.log('🎨 Attempting to load real Minecraft textures...');
+            
+            // Get all unique texture names used in procedural textures
+            const textureNames = Object.keys(blockTextures);
+            
+            // Try to load each texture from real files
+            const loadPromises = textureNames.map(async (name) => {
+                const realTexture = await loadRealTexture(name);
+                if (realTexture) {
+                    blockTextures[name] = realTexture; // Override procedural with real
+                }
+            });
+            
+            await Promise.all(loadPromises);
+            
+            if (loadedRealTextures.size > 0) {
+                console.log(`✓ Loaded ${loadedRealTextures.size} real textures:`, Array.from(loadedRealTextures));
+            }
+            if (failedTextures.size > 0) {
+                console.log(`ℹ Using procedural fallback for ${failedTextures.size} textures`);
+            }
+        }
+        
+        // Start loading real textures (non-blocking, will update as they load)
+        let texturesLoaded = false;
+        loadAllRealTextures().then(() => {
+            console.log('✓ Real texture loading complete');
+            texturesLoaded = true;
+            
+            // Update materials with the newly loaded real textures
+            if (typeof textureMaterials !== 'undefined') {
+                Object.entries(blockTextures).forEach(([name, texture]) => {
+                    if (textureMaterials[name] && loadedRealTextures.has(name)) {
+                        textureMaterials[name].map = texture;
+                        textureMaterials[name].needsUpdate = true;
+                    }
+                });
+                console.log(`✓ Updated ${loadedRealTextures.size} materials with real textures`);
+                
+                // Force re-render of all chunks to show new textures
+                if (typeof rebuildAllChunks === 'function') {
+                    rebuildAllChunks();
+                }
+            }
+        }).catch(err => {
+            console.warn('⚠ Error loading real textures, using procedural:', err);
+        });
         
         // Block type to texture mapping (supports multi-face textures)
         const blockTextureMap = {
             // Natural terrain
             grass: { top: 'grass_top', bottom: 'dirt', side: 'grass_side' },
             grass_block: { top: 'grass_top', bottom: 'dirt', side: 'grass_side' },
-            short_grass: { all: 'grass_top' },
-            tall_grass: { all: 'grass_top' },
+            short_grass: { all: 'short_grass' },
+            tall_grass: { all: 'short_grass' },
             dirt: { all: 'dirt' },
             coarse_dirt: { all: 'dirt' },
             rooted_dirt: { all: 'dirt' },
-            podzol: { top: 'dirt', bottom: 'dirt', side: 'dirt' },
-            mycelium: { top: 'dirt', bottom: 'dirt', side: 'dirt' },
+            podzol: { top: 'podzol_top', bottom: 'dirt', side: 'podzol_side' },
+            mycelium: { top: 'mycelium_top', bottom: 'dirt', side: 'mycelium_side' },
+            mud: { all: 'mud' },
+            clay: { all: 'clay' },
             stone: { all: 'stone' },
             cobblestone: { all: 'cobblestone' },
             mossy_cobblestone: { all: 'cobblestone' },
             sand: { all: 'sand' },
-            red_sand: { all: 'sand' },
-            sandstone: { all: 'sand' },
-            red_sandstone: { all: 'sand' },
+            red_sand: { all: 'red_sand' },
+            sandstone: { all: 'sandstone' },
+            red_sandstone: { all: 'red_sandstone' },
             gravel: { all: 'gravel' },
-            clay: { all: 'gravel' },
+            
+            // Lava (NEW!)
+            lava: { all: 'lava' },
             
             // Water and ice
             water: { all: 'water' },
-            ice: { all: 'glass' },
-            packed_ice: { all: 'glass' },
-            blue_ice: { all: 'glass' },
+            ice: { all: 'ice' },
+            packed_ice: { all: 'packed_ice' },
+            blue_ice: { all: 'blue_ice' },
             
-            // Wood types
+            // Wood types - using specific textures where available
             wood: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
             oak_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
-            spruce_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
-            birch_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
-            jungle_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
-            acacia_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
-            dark_oak_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
+            spruce_log: { top: 'wood_top', bottom: 'wood_top', side: 'spruce_log_side' },
+            birch_log: { top: 'birch_log_top', bottom: 'birch_log_top', side: 'birch_log_side' },
+            jungle_log: { top: 'wood_top', bottom: 'wood_top', side: 'jungle_log_side' },
+            acacia_log: { top: 'wood_top', bottom: 'wood_top', side: 'acacia_log_side' },
+            dark_oak_log: { top: 'wood_top', bottom: 'wood_top', side: 'dark_oak_log_side' },
             mangrove_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
-            cherry_log: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
-            crimson_stem: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
-            warped_stem: { top: 'wood_top', bottom: 'wood_top', side: 'wood_side' },
+            cherry_log: { top: 'wood_top', bottom: 'wood_top', side: 'cherry_log_side' },
+            crimson_stem: { top: 'crimson_stem', bottom: 'crimson_stem', side: 'crimson_stem' },
+            warped_stem: { top: 'warped_stem', bottom: 'warped_stem', side: 'warped_stem' },
             
             // Stripped logs
             stripped_oak_log: { top: 'wood_top', bottom: 'wood_top', side: 'planks' },
-            stripped_spruce_log: { top: 'wood_top', bottom: 'wood_top', side: 'planks' },
-            stripped_birch_log: { top: 'wood_top', bottom: 'wood_top', side: 'planks' },
+            stripped_spruce_log: { top: 'wood_top', bottom: 'wood_top', side: 'spruce_planks' },
+            stripped_birch_log: { top: 'birch_log_top', bottom: 'birch_log_top', side: 'birch_planks' },
             stripped_jungle_log: { top: 'wood_top', bottom: 'wood_top', side: 'planks' },
             stripped_acacia_log: { top: 'wood_top', bottom: 'wood_top', side: 'planks' },
-            stripped_dark_oak_log: { top: 'wood_top', bottom: 'wood_top', side: 'planks' },
+            stripped_dark_oak_log: { top: 'wood_top', bottom: 'wood_top', side: 'dark_oak_planks' },
             
-            // Leaves
+            // Leaves - using specific textures
             leaves: { all: 'leaves' },
             oak_leaves: { all: 'leaves' },
-            spruce_leaves: { all: 'leaves' },
-            birch_leaves: { all: 'leaves' },
-            jungle_leaves: { all: 'leaves' },
-            acacia_leaves: { all: 'leaves' },
-            dark_oak_leaves: { all: 'leaves' },
-            mangrove_leaves: { all: 'leaves' },
-            cherry_leaves: { all: 'leaves' },
-            azalea_leaves: { all: 'leaves' },
-            flowering_azalea_leaves: { all: 'leaves' },
+            spruce_leaves: { all: 'spruce_leaves' },
+            birch_leaves: { all: 'birch_leaves' },
+            jungle_leaves: { all: 'jungle_leaves' },
+            acacia_leaves: { all: 'acacia_leaves' },
+            dark_oak_leaves: { all: 'dark_oak_leaves' },
+            mangrove_leaves: { all: 'mangrove_leaves' },
+            cherry_leaves: { all: 'cherry_leaves' },
+            azalea_leaves: { all: 'azalea_leaves' },
+            flowering_azalea_leaves: { all: 'azalea_leaves' },
             
-            // Planks
+            // Planks - using real textures
             planks: { all: 'planks' },
             oak_planks: { all: 'planks' },
-            spruce_planks: { all: 'planks' },
-            birch_planks: { all: 'planks' },
-            jungle_planks: { all: 'planks' },
-            acacia_planks: { all: 'planks' },
-            dark_oak_planks: { all: 'planks' },
-            mangrove_planks: { all: 'planks' },
-            cherry_planks: { all: 'planks' },
-            crimson_planks: { all: 'planks' },
-            warped_planks: { all: 'planks' },
-            bamboo_planks: { all: 'planks' },
+            spruce_planks: { all: 'spruce_planks' },
+            birch_planks: { all: 'birch_planks' },
+            jungle_planks: { all: 'jungle_planks' },
+            acacia_planks: { all: 'acacia_planks' },
+            dark_oak_planks: { all: 'dark_oak_planks' },
+            mangrove_planks: { all: 'mangrove_planks' },
+            cherry_planks: { all: 'cherry_planks' },
+            crimson_planks: { all: 'crimson_planks' },
+            warped_planks: { all: 'warped_planks' },
+            bamboo_planks: { all: 'bamboo_planks' },
             
             // Snow and cold biomes
             snow: { all: 'snow' },
@@ -1554,163 +2750,249 @@
             // Underground
             bedrock: { all: 'bedrock' },
             deepslate: { all: 'deepslate' },
-            cobbled_deepslate: { all: 'deepslate' },
-            polished_deepslate: { all: 'deepslate' },
-            deepslate_bricks: { all: 'deepslate' },
-            deepslate_tiles: { all: 'deepslate' },
+            cobbled_deepslate: { all: 'cobbled_deepslate' },
+            polished_deepslate: { all: 'polished_deepslate' },
+            deepslate_bricks: { all: 'deepslate_bricks' },
+            deepslate_tiles: { all: 'deepslate_tiles' },
             
-            // Ores
+            // Stone variants - using specific textures
+            andesite: { all: 'andesite' },
+            diorite: { all: 'diorite' },
+            granite: { all: 'granite' },
+            polished_andesite: { all: 'polished_andesite' },
+            polished_diorite: { all: 'polished_diorite' },
+            polished_granite: { all: 'polished_granite' },
+            tuff: { all: 'tuff' },
+            calcite: { all: 'calcite' },
+            dripstone_block: { all: 'dripstone' },
+            
+            // Ores - using real textures including deepslate variants
             coal_ore: { all: 'coal_ore' },
-            deepslate_coal_ore: { all: 'coal_ore' },
+            deepslate_coal_ore: { all: 'deepslate_coal_ore' },
             iron_ore: { all: 'iron_ore' },
-            deepslate_iron_ore: { all: 'iron_ore' },
+            deepslate_iron_ore: { all: 'deepslate_iron_ore' },
             gold_ore: { all: 'gold_ore' },
-            deepslate_gold_ore: { all: 'gold_ore' },
+            deepslate_gold_ore: { all: 'deepslate_gold_ore' },
             diamond_ore: { all: 'diamond_ore' },
-            deepslate_diamond_ore: { all: 'diamond_ore' },
+            deepslate_diamond_ore: { all: 'deepslate_diamond_ore' },
             redstone_ore: { all: 'redstone_ore' },
-            deepslate_redstone_ore: { all: 'redstone_ore' },
+            deepslate_redstone_ore: { all: 'deepslate_redstone_ore' },
             lapis_ore: { all: 'lapis_ore' },
-            deepslate_lapis_ore: { all: 'lapis_ore' },
+            deepslate_lapis_ore: { all: 'deepslate_lapis_ore' },
             emerald_ore: { all: 'emerald_ore' },
-            deepslate_emerald_ore: { all: 'emerald_ore' },
+            deepslate_emerald_ore: { all: 'deepslate_emerald_ore' },
             copper_ore: { all: 'copper_ore' },
-            deepslate_copper_ore: { all: 'copper_ore' },
-            nether_gold_ore: { all: 'gold_ore' },
-            nether_quartz_ore: { all: 'stone' },
+            deepslate_copper_ore: { all: 'deepslate_copper_ore' },
+            nether_gold_ore: { all: 'nether_gold_ore' },
+            nether_quartz_ore: { all: 'nether_quartz_ore' },
             ancient_debris: { all: 'obsidian' },
             
-            // Nether blocks
+            // Nether blocks - using specific textures
             netherrack: { all: 'netherrack' },
             soul_sand: { all: 'soul_sand' },
-            soul_soil: { all: 'soul_sand' },
+            soul_soil: { all: 'soul_soil' },
             glowstone: { all: 'glowstone' },
-            magma_block: { all: 'netherrack' },
-            nether_bricks: { all: 'bricks' },
-            red_nether_bricks: { all: 'bricks' },
-            basalt: { all: 'deepslate' },
-            polished_basalt: { all: 'deepslate' },
-            smooth_basalt: { all: 'deepslate' },
-            blackstone: { all: 'deepslate' },
-            polished_blackstone: { all: 'deepslate' },
+            magma_block: { all: 'magma_block' },
+            nether_bricks: { all: 'nether_bricks' },
+            red_nether_bricks: { all: 'red_nether_bricks' },
+            chiseled_nether_bricks: { all: 'chiseled_nether_bricks' },
+            cracked_nether_bricks: { all: 'cracked_nether_bricks' },
+            nether_wart_block: { all: 'nether_wart_block' },
+            warped_wart_block: { all: 'warped_wart_block' },
+            shroomlight: { all: 'shroomlight' },
+            basalt: { top: 'basalt_top', bottom: 'basalt_top', side: 'basalt' },
+            polished_basalt: { top: 'polished_basalt_top', bottom: 'polished_basalt_top', side: 'polished_basalt_side' },
+            smooth_basalt: { all: 'smooth_basalt' },
+            blackstone: { top: 'blackstone_top', bottom: 'blackstone_top', side: 'blackstone' },
+            polished_blackstone: { all: 'polished_blackstone' },
+            polished_blackstone_bricks: { all: 'polished_blackstone_bricks' },
+            gilded_blackstone: { all: 'gilded_blackstone' },
             
             // End blocks
             end_stone: { all: 'end_stone' },
-            end_stone_bricks: { all: 'end_stone' },
-            purpur_block: { all: 'end_stone' },
-            purpur_pillar: { all: 'end_stone' },
+            end_stone_bricks: { all: 'end_stone_bricks' },
+            purpur_block: { all: 'purpur' },
+            purpur_pillar: { top: 'purpur_pillar_top', bottom: 'purpur_pillar_top', side: 'purpur_pillar' },
             
             // Special blocks
             obsidian: { all: 'obsidian' },
-            crying_obsidian: { all: 'obsidian' },
+            crying_obsidian: { all: 'crying_obsidian' },
             glass: { all: 'glass' },
             glass_pane: { all: 'glass' },
-            tinted_glass: { all: 'glass' },
+            tinted_glass: { all: 'tinted_glass' },
+            
+            // New natural blocks
+            moss_block: { all: 'moss_block' },
+            prismarine: { all: 'prismarine' },
+            prismarine_bricks: { all: 'prismarine_bricks' },
+            dark_prismarine: { all: 'dark_prismarine' },
+            amethyst_block: { all: 'amethyst' },
+            budding_amethyst: { all: 'budding_amethyst' },
+            sculk: { all: 'sculk' },
+            sculk_catalyst: { top: 'sculk_catalyst_top', bottom: 'sculk', side: 'sculk_catalyst_side' },
+            sculk_sensor: { top: 'sculk_sensor_top', bottom: 'sculk', side: 'sculk_sensor_side' },
             
             // Building blocks
             bricks: { all: 'bricks' },
             brick: { all: 'bricks' },
-            stone_bricks: { all: 'cobblestone' },
-            mossy_stone_bricks: { all: 'cobblestone' },
-            cracked_stone_bricks: { all: 'cobblestone' },
-            chiseled_stone_bricks: { all: 'cobblestone' },
+            stone_bricks: { all: 'stone_bricks' },
+            mossy_stone_bricks: { all: 'mossy_stone_bricks' },
+            cracked_stone_bricks: { all: 'cracked_stone_bricks' },
+            chiseled_stone_bricks: { all: 'chiseled_stone_bricks' },
             
             // Functional blocks
-            tnt: { top: 'tnt_top', bottom: 'tnt_top', side: 'tnt_side' },
-            crafting_table: { top: 'crafting_top', bottom: 'planks', side: 'crafting_side' },
-            furnace: { top: 'furnace_side', bottom: 'furnace_side', front: 'furnace_front', side: 'furnace_side' },
-            blast_furnace: { top: 'furnace_side', bottom: 'furnace_side', front: 'furnace_front', side: 'furnace_side' },
-            smoker: { top: 'furnace_side', bottom: 'furnace_side', front: 'furnace_front', side: 'furnace_side' },
+            tnt: { top: 'tnt_top', bottom: 'tnt_bottom', side: 'tnt_side' },
+            crafting_table: { top: 'crafting_top', bottom: 'planks', side: 'crafting_side', front: 'crafting_front' },
+            furnace: { top: 'furnace_top', bottom: 'furnace_top', front: 'furnace_front', side: 'furnace_side' },
+            blast_furnace: { top: 'blast_furnace_top', bottom: 'blast_furnace_top', front: 'blast_furnace_front', side: 'blast_furnace_side' },
+            smoker: { top: 'smoker_top', bottom: 'smoker_top', front: 'smoker_front', side: 'smoker_side' },
+            bookshelf: { all: 'bookshelf' },
+            jukebox: { top: 'jukebox_top', bottom: 'jukebox_side', side: 'jukebox_side' },
             
-            // Metals and gems (solid blocks)
-            iron_block: { all: 'stone' },
-            gold_block: { all: 'glowstone' },
-            diamond_block: { all: 'glass' },
-            emerald_block: { all: 'leaves' },
-            lapis_block: { all: 'lapis_ore' },
-            redstone_block: { all: 'redstone_ore' },
-            copper_block: { all: 'copper_ore' },
-            netherite_block: { all: 'obsidian' },
+            // Metals and gems (solid blocks) - using real textures
+            iron_block: { all: 'iron_block' },
+            gold_block: { all: 'gold_block' },
+            diamond_block: { all: 'diamond_block' },
+            emerald_block: { all: 'emerald_block' },
+            lapis_block: { all: 'lapis_block' },
+            redstone_block: { all: 'redstone_block' },
+            copper_block: { all: 'copper_block' },
+            netherite_block: { all: 'netherite_block' },
+            coal_block: { all: 'coal_block' },
+            raw_iron_block: { all: 'raw_iron_block' },
+            raw_gold_block: { all: 'raw_gold_block' },
+            raw_copper_block: { all: 'raw_copper_block' },
+            amethyst: { all: 'amethyst' },
             
-            // Miscellaneous
-            andesite: { all: 'stone' },
-            diorite: { all: 'stone' },
-            granite: { all: 'stone' },
-            polished_andesite: { all: 'stone' },
-            polished_diorite: { all: 'stone' },
-            polished_granite: { all: 'stone' },
-            calcite: { all: 'snow' },
-            tuff: { all: 'gravel' },
-            dripstone_block: { all: 'gravel' },
-            prismarine: { all: 'water' },
-            dark_prismarine: { all: 'water' },
-            sea_lantern: { all: 'glowstone' },
+            // Light blocks
+            sea_lantern: { all: 'sea_lantern' },
+            redstone_lamp: { all: 'redstone_lamp' },
             
-            // Terracotta (maps to dirt-like)
-            terracotta: { all: 'dirt' },
-            white_terracotta: { all: 'dirt' },
-            orange_terracotta: { all: 'dirt' },
-            magenta_terracotta: { all: 'dirt' },
-            light_blue_terracotta: { all: 'dirt' },
-            yellow_terracotta: { all: 'dirt' },
-            lime_terracotta: { all: 'dirt' },
-            pink_terracotta: { all: 'dirt' },
-            gray_terracotta: { all: 'dirt' },
-            light_gray_terracotta: { all: 'dirt' },
-            cyan_terracotta: { all: 'dirt' },
-            purple_terracotta: { all: 'dirt' },
-            blue_terracotta: { all: 'dirt' },
-            brown_terracotta: { all: 'dirt' },
-            green_terracotta: { all: 'dirt' },
-            red_terracotta: { all: 'dirt' },
-            black_terracotta: { all: 'dirt' },
+            // Terracotta - using real textures
+            terracotta: { all: 'terracotta' },
+            white_terracotta: { all: 'white_terracotta' },
+            orange_terracotta: { all: 'orange_terracotta' },
+            magenta_terracotta: { all: 'magenta_terracotta' },
+            light_blue_terracotta: { all: 'light_blue_terracotta' },
+            yellow_terracotta: { all: 'yellow_terracotta' },
+            lime_terracotta: { all: 'lime_terracotta' },
+            pink_terracotta: { all: 'pink_terracotta' },
+            gray_terracotta: { all: 'gray_terracotta' },
+            light_gray_terracotta: { all: 'light_gray_terracotta' },
+            cyan_terracotta: { all: 'cyan_terracotta' },
+            purple_terracotta: { all: 'purple_terracotta' },
+            blue_terracotta: { all: 'blue_terracotta' },
+            brown_terracotta: { all: 'brown_terracotta' },
+            green_terracotta: { all: 'green_terracotta' },
+            red_terracotta: { all: 'red_terracotta' },
+            black_terracotta: { all: 'black_terracotta' },
             
-            // Concrete
-            white_concrete: { all: 'stone' },
-            orange_concrete: { all: 'stone' },
-            magenta_concrete: { all: 'stone' },
-            light_blue_concrete: { all: 'stone' },
-            yellow_concrete: { all: 'stone' },
-            lime_concrete: { all: 'stone' },
-            pink_concrete: { all: 'stone' },
-            gray_concrete: { all: 'stone' },
-            light_gray_concrete: { all: 'stone' },
-            cyan_concrete: { all: 'stone' },
-            purple_concrete: { all: 'stone' },
-            blue_concrete: { all: 'stone' },
-            brown_concrete: { all: 'stone' },
-            green_concrete: { all: 'stone' },
-            red_concrete: { all: 'stone' },
-            black_concrete: { all: 'stone' },
+            // Concrete - using real textures
+            white_concrete: { all: 'white_concrete' },
+            orange_concrete: { all: 'orange_concrete' },
+            magenta_concrete: { all: 'magenta_concrete' },
+            light_blue_concrete: { all: 'light_blue_concrete' },
+            yellow_concrete: { all: 'yellow_concrete' },
+            lime_concrete: { all: 'lime_concrete' },
+            pink_concrete: { all: 'pink_concrete' },
+            gray_concrete: { all: 'gray_concrete' },
+            light_gray_concrete: { all: 'light_gray_concrete' },
+            cyan_concrete: { all: 'cyan_concrete' },
+            purple_concrete: { all: 'purple_concrete' },
+            blue_concrete: { all: 'blue_concrete' },
+            brown_concrete: { all: 'brown_concrete' },
+            green_concrete: { all: 'green_concrete' },
+            red_concrete: { all: 'red_concrete' },
+            black_concrete: { all: 'black_concrete' },
             
-            // Wool
-            white_wool: { all: 'snow' },
-            orange_wool: { all: 'snow' },
-            magenta_wool: { all: 'snow' },
-            light_blue_wool: { all: 'snow' },
-            yellow_wool: { all: 'snow' },
-            lime_wool: { all: 'snow' },
-            pink_wool: { all: 'snow' },
-            gray_wool: { all: 'snow' },
-            light_gray_wool: { all: 'snow' },
-            cyan_wool: { all: 'snow' },
-            purple_wool: { all: 'snow' },
-            blue_wool: { all: 'snow' },
-            brown_wool: { all: 'snow' },
-            green_wool: { all: 'snow' },
-            red_wool: { all: 'snow' },
-            black_wool: { all: 'snow' },
+            // Wool - using real textures
+            white_wool: { all: 'white_wool' },
+            orange_wool: { all: 'orange_wool' },
+            magenta_wool: { all: 'magenta_wool' },
+            light_blue_wool: { all: 'light_blue_wool' },
+            yellow_wool: { all: 'yellow_wool' },
+            lime_wool: { all: 'lime_wool' },
+            pink_wool: { all: 'pink_wool' },
+            gray_wool: { all: 'gray_wool' },
+            light_gray_wool: { all: 'light_gray_wool' },
+            cyan_wool: { all: 'cyan_wool' },
+            purple_wool: { all: 'purple_wool' },
+            blue_wool: { all: 'blue_wool' },
+            brown_wool: { all: 'brown_wool' },
+            green_wool: { all: 'green_wool' },
+            red_wool: { all: 'red_wool' },
+            black_wool: { all: 'black_wool' },
             
-            // Misc
-            pumpkin: { top: 'grass_top', bottom: 'grass_top', side: 'grass_side' },
-            melon: { top: 'leaves', bottom: 'leaves', side: 'leaves' },
-            hay_block: { top: 'sand', bottom: 'sand', side: 'sand' },
-            bone_block: { all: 'snow' },
-            sponge: { all: 'sand' },
-            wet_sponge: { all: 'sand' },
-            slime_block: { all: 'leaves' },
-            honey_block: { all: 'glowstone' },
-            honeycomb_block: { all: 'sand' },
+            // Misc - using real textures where available
+            pumpkin: { top: 'pumpkin_top', bottom: 'pumpkin_top', side: 'pumpkin_side' },
+            carved_pumpkin: { top: 'pumpkin_top', bottom: 'pumpkin_top', front: 'carved_pumpkin', side: 'pumpkin_side' },
+            jack_o_lantern: { top: 'pumpkin_top', bottom: 'pumpkin_top', front: 'jack_o_lantern', side: 'pumpkin_side' },
+            melon: { top: 'melon_top', bottom: 'melon_top', side: 'melon_side' },
+            hay_block: { top: 'hay_block_top', bottom: 'hay_block_top', side: 'hay_block_side' },
+            bone_block: { top: 'bone_block_top', bottom: 'bone_block_top', side: 'bone_block_side' },
+            sponge: { all: 'sponge' },
+            wet_sponge: { all: 'wet_sponge' },
+            slime_block: { all: 'slime_block' },
+            honey_block: { top: 'honey_block_top', bottom: 'honey_block_top', side: 'honey_block_side' },
+            honeycomb_block: { all: 'honeycomb_block' },
+            
+            // Mushroom blocks
+            red_mushroom_block: { all: 'red_mushroom_block' },
+            brown_mushroom_block: { all: 'brown_mushroom_block' },
+            mushroom_stem: { all: 'mushroom_stem' },
+            red_mushroom: { all: 'red_mushroom' },
+            brown_mushroom: { all: 'brown_mushroom' },
+            
+            // Additional natural blocks
+            vine: { all: 'vine' },
+            lily_pad: { all: 'lily_pad' },
+            cactus: { top: 'cactus_top', bottom: 'cactus_bottom', side: 'cactus_side' },
+            sugar_cane: { all: 'sugar_cane' },
+            bamboo: { all: 'bamboo_stalk' },
+            dead_bush: { all: 'dead_bush' },
+            fern: { all: 'fern' },
+            
+            // Flowers  
+            dandelion: { all: 'dandelion' },
+            poppy: { all: 'poppy' },
+            blue_orchid: { all: 'blue_orchid' },
+            allium: { all: 'allium' },
+            azure_bluet: { all: 'azure_bluet' },
+            tulip: { all: 'red_tulip' },
+            red_tulip: { all: 'red_tulip' },
+            orange_tulip: { all: 'orange_tulip' },
+            white_tulip: { all: 'white_tulip' },
+            pink_tulip: { all: 'pink_tulip' },
+            oxeye_daisy: { all: 'oxeye_daisy' },
+            cornflower: { all: 'cornflower' },
+            lily_of_the_valley: { all: 'lily_of_the_valley' },
+            wither_rose: { all: 'wither_rose' },
+            torchflower: { all: 'torchflower' },
+            
+            // Coral blocks
+            tube_coral_block: { all: 'tube_coral_block' },
+            brain_coral_block: { all: 'brain_coral_block' },
+            bubble_coral_block: { all: 'bubble_coral_block' },
+            fire_coral_block: { all: 'fire_coral_block' },
+            horn_coral_block: { all: 'horn_coral_block' },
+            dead_tube_coral_block: { all: 'dead_tube_coral_block' },
+            dead_brain_coral_block: { all: 'dead_brain_coral_block' },
+            dead_bubble_coral_block: { all: 'dead_bubble_coral_block' },
+            dead_fire_coral_block: { all: 'dead_fire_coral_block' },
+            dead_horn_coral_block: { all: 'dead_horn_coral_block' },
+            
+            // Misc utility blocks
+            spawner: { all: 'spawner' },
+            cobweb: { all: 'cobweb' },
+            torch: { all: 'torch' },
+            lantern: { all: 'lantern' },
+            soul_lantern: { all: 'soul_lantern' },
+            chain: { all: 'chain' },
+            ladder: { all: 'ladder' },
+            rail: { all: 'rail' },
+            powered_rail: { all: 'powered_rail' },
+            detector_rail: { all: 'detector_rail' },
+            activator_rail: { all: 'activator_rail' },
             
             // Default air (shouldn't render, but just in case)
             air: { all: 'glass' },
@@ -1722,16 +3004,64 @@
         const materials = {};
         const textureMaterials = {}; // Store materials for each texture
         
+        // Biome color tints (Minecraft uses these to colorize grayscale textures)
+        const BIOME_COLORS = {
+            // Grass and foliage colors (forest biome approximation)
+            grass: new THREE.Color(0x7CBD6B),      // Green grass tint
+            foliage: new THREE.Color(0x59AE30),    // Green leaf tint  
+            water: new THREE.Color(0x3F76E4),      // Blue water tint
+            birch_foliage: new THREE.Color(0x80A755), // Birch has fixed color
+            spruce_foliage: new THREE.Color(0x619961), // Spruce has fixed color
+            swamp_foliage: new THREE.Color(0x6A7039), // Darker swamp color
+        };
+        
         // Create a material for each texture
         Object.entries(blockTextures).forEach(([name, texture]) => {
-            const isTransparent = name === 'water' || name === 'glass' || name === 'leaves';
-            textureMaterials[name] = new THREE.MeshLambertMaterial({
+            // Determine material properties based on texture type
+            const isTransparent = name === 'water' || name === 'glass' || name === 'ice' || 
+                                  name.includes('leaves') || name.includes('stained_glass');
+            const isLava = name === 'lava' || name === 'magma_block';
+            const isEmissive = isLava || name === 'glowstone' || name === 'sea_lantern' || 
+                               name === 'shroomlight' || name === 'redstone_lamp_on';
+            
+            // Check if this texture needs biome color tinting
+            const needsGrassTint = name === 'grass_top' || name === 'grass_side' || 
+                                   name === 'grass_side_overlay' || name === 'short_grass' || 
+                                   name === 'tall_grass';
+            const needsFoliageTint = name.includes('leaves') || name === 'vine';
+            const needsWaterTint = name === 'water';
+            
+            const materialProps = {
                 map: texture,
                 transparent: isTransparent,
-                opacity: name === 'water' ? 0.7 : (name === 'glass' ? 0.4 : 1.0),
-                side: name === 'leaves' || name === 'glass' ? THREE.DoubleSide : THREE.FrontSide,
-                alphaTest: name === 'leaves' ? 0.1 : 0
-            });
+                opacity: name === 'water' ? 0.7 : (name === 'glass' ? 0.4 : (name === 'ice' ? 0.85 : 1.0)),
+                side: (name.includes('leaves') || name === 'glass' || name.includes('stained_glass')) ? THREE.DoubleSide : THREE.FrontSide,
+                alphaTest: name.includes('leaves') ? 0.1 : 0
+            };
+            
+            // Apply biome color tinting
+            if (needsGrassTint) {
+                materialProps.color = BIOME_COLORS.grass;
+            } else if (needsFoliageTint) {
+                // Use specific colors for certain leaf types
+                if (name.includes('birch')) {
+                    materialProps.color = BIOME_COLORS.birch_foliage;
+                } else if (name.includes('spruce')) {
+                    materialProps.color = BIOME_COLORS.spruce_foliage;
+                } else {
+                    materialProps.color = BIOME_COLORS.foliage;
+                }
+            } else if (needsWaterTint) {
+                materialProps.color = BIOME_COLORS.water;
+            }
+            
+            // Add emissive glow for light-emitting blocks
+            if (isEmissive) {
+                materialProps.emissive = isLava ? new THREE.Color(0xFF4400) : new THREE.Color(0xFFE066);
+                materialProps.emissiveIntensity = isLava ? 0.6 : 0.4;
+            }
+            
+            textureMaterials[name] = new THREE.MeshLambertMaterial(materialProps);
         });
         
         // Create default fallback material
@@ -1787,7 +3117,7 @@
         let loadedChunkData = getLoadedChunkData();
         let globalBlockMap = getGlobalBlockMap();
         let chunkMeshes = getChunkMeshes();
-        
+
         const players = new Map();
         let pendingBlocks = null;
         let needsRebuild = false;
@@ -2193,13 +3523,22 @@
             // This allows different faces of same block type to use different textures
             const byTexture = {};
             
-            // Transparent block types that need special handling
-            const transparentTypes = new Set(['water', 'leaves', 'oak_leaves', 'spruce_leaves', 'birch_leaves', 
-                'jungle_leaves', 'acacia_leaves', 'dark_oak_leaves', 'glass']);
+            // Transparent block types that need special handling (not culled by opaque neighbors)
+            const transparentTypes = new Set([
+                'water', 'lava', 'glass', 'ice', 'packed_ice', 'blue_ice',
+                'leaves', 'oak_leaves', 'spruce_leaves', 'birch_leaves', 
+                'jungle_leaves', 'acacia_leaves', 'dark_oak_leaves', 
+                'mangrove_leaves', 'cherry_leaves', 'azalea_leaves'
+            ]);
+            
+            // Liquid types that behave like water (flow together)
+            const liquidTypes = new Set(['water', 'lava']);
             
             blocks.forEach(({ x, y, z, type = 'stone' }) => {
                 const isTransparent = transparentTypes.has(type);
+                const isLiquid = liquidTypes.has(type);
                 const isWater = type === 'water';
+                const isLava = type === 'lava';
                 
                 // For each direction, check if we should render the face
                 const checkFace = (dx, dy, dz, faceKey) => {
@@ -2208,16 +3547,16 @@
                     
                     let shouldRender = false;
                     
-                    if (isWater) {
-                        // Water: only render faces adjacent to non-water (air or solid blocks)
-                        if (!adjacentType || (adjacentType !== 'water')) {
+                    if (isLiquid) {
+                        // Liquids: only render faces adjacent to non-same-liquid blocks
+                        if (!adjacentType || adjacentType !== type) {
                             shouldRender = true;
                         }
                     } else if (!adjacentType) {
                         // No block there, render face
                         shouldRender = true;
-                    } else if (adjacentType === 'water') {
-                        // Solid block next to water - always render this face
+                    } else if (adjacentType === 'water' || adjacentType === 'lava') {
+                        // Solid block next to liquid - always render this face
                         shouldRender = true;
                     } else if (isTransparent) {
                         // For transparent blocks, only cull if adjacent is same type
@@ -2231,7 +3570,7 @@
                         const textureName = getTextureForFace(type, faceData.texType);
                         
                         if (!byTexture[textureName]) {
-                            byTexture[textureName] = { blocks: [], isWater: isWater, isTransparent: isTransparent, blockType: type };
+                            byTexture[textureName] = { blocks: [], isLiquid: isLiquid, isTransparent: isTransparent, blockType: type };
                         }
                         byTexture[textureName].blocks.push({ x, y, z, faceKey, type });
                     }
@@ -2249,7 +3588,7 @@
             
             // Build merged geometry per texture
             Object.entries(byTexture).forEach(([textureName, data]) => {
-                const { blocks: faceBlocks, isWater, isTransparent } = data;
+                const { blocks: faceBlocks, isLiquid, isTransparent } = data;
                 
                 // Get material for this texture
                 let mat = textureMaterials[textureName];
@@ -2257,8 +3596,8 @@
                     mat = textureMaterials.default;
                 }
                 
-                // Water inset to prevent z-fighting with adjacent solid blocks
-                const inset = isWater ? 0.01 : 0;
+                // Liquid inset to prevent z-fighting with adjacent solid blocks
+                const inset = isLiquid ? 0.01 : 0;
                 
                 // Merge all faces of this texture into one geometry
                 const positions = [];
@@ -2270,7 +3609,7 @@
                 faceBlocks.forEach(({ x, y, z, faceKey }) => {
                     const face = FACE_DATA[faceKey];
                     
-                    // Add translated vertices with optional inset for water
+                    // Add translated vertices with optional inset for liquids
                     for (let i = 0; i < 12; i += 3) {
                         positions.push(
                             face.verts[i] + x - face.norm[0] * inset,
