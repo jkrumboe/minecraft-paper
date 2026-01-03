@@ -6,7 +6,9 @@ Real-time 3D visualization of Minecraft player positions from the McGpsTelemetry
 
 ✨ **Real-time Updates** - Uses Server-Sent Events (SSE) to stream player positions  
 🎮 **3D Visualization** - Three.js powered 3D world with authentic Minecraft textures  
-🧱 **Procedural Block Textures** - Grass, dirt, stone, ores, wood, leaves, and 100+ block types  
+🧱 **Real Minecraft Textures** - Load actual textures from Minecraft 1.20.4 JAR for authentic look  
+🌊 **Animated Textures** - Flowing water and lava animations like vanilla Minecraft  
+🎨 **Procedural Fallback** - Generated textures for 100+ block types when real textures unavailable  
 👤 **Player Skins** - Fetches real player skins from Mojang's Session Server API  
 🎥 **Multiple Camera Modes** - Free cam, 2D top-down, first-person, and third-person views  
 📦 **Chunk-based Rendering** - Efficient world streaming with frustum culling  
@@ -28,7 +30,15 @@ npm install
 npm start
 ```
 
-### 3. Open in Browser
+### 3. (Optional) Add Real Minecraft Textures
+For the authentic Minecraft look with animated water and lava:
+```bash
+# Extract textures from your Minecraft 1.20.4 installation
+# See public/textures/README.md for detailed instructions
+unzip -j ~/.minecraft/versions/1.20.4/1.20.4.jar "assets/minecraft/textures/block/*" -d public/textures/
+```
+
+### 4. Open in Browser
 Navigate to: **http://localhost:3000**
 
 ## Requirements
@@ -36,6 +46,27 @@ Navigate to: **http://localhost:3000**
 - Node.js 14 or higher
 - Docker running with `minecraft-paper` container
 - McGpsTelemetry plugin installed and running on the Minecraft server
+- (Optional) Minecraft 1.20.4 installation for extracting textures
+
+## Texture System
+
+McGPS supports both procedural (generated) and real Minecraft textures:
+
+### Procedural Textures (Default)
+- Automatically generated block textures
+- Works out of the box, no setup required
+- Covers 100+ block types
+- Good performance and reasonable appearance
+
+### Real Minecraft Textures (Recommended)
+- Authentic vanilla Minecraft appearance
+- Animated water and lava
+- Better visual detail and consistency
+- Requires extraction from Minecraft JAR
+
+**To use real textures:** Extract PNG files from `minecraft.jar` to `public/textures/`. See `public/textures/README.md` for detailed instructions.
+
+**Hybrid Mode:** The viewer automatically uses real textures when available and falls back to procedural textures for missing files.
 
 ## How It Works
 
@@ -46,8 +77,10 @@ Navigate to: **http://localhost:3000**
 
 2. **Frontend** (`public/index.html`):
    - Uses Three.js for 3D rendering
+   - Loads real Minecraft textures from `/textures/` directory
+   - Animates water and lava using frame-based animation system
    - Receives real-time updates via SSE connection
-   - Displays players as colored capsules with direction indicators
+   - Displays players with their actual Minecraft skins
    - Shows position trails and coordinate information
 
 ## Controls

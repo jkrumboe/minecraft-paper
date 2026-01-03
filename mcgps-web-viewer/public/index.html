@@ -2653,6 +2653,11 @@
                 });
                 console.log(`✓ Updated ${loadedRealTextures.size} materials with real textures`);
                 
+                // Re-initialize texture animations with real textures
+                if (typeof initializeTextureAnimations === 'function') {
+                    initializeTextureAnimations();
+                }
+                
                 // Force re-render of all chunks to show new textures
                 if (typeof rebuildAllChunks === 'function') {
                     rebuildAllChunks();
@@ -3070,6 +3075,126 @@
         });
         
         console.log('✓ Created textured materials for blocks');
+
+        // ========== TEXTURE ANIMATION SYSTEM ==========
+        // Inspired by BlueMap's animation system for water, lava, and other animated blocks
+        
+        // Animation configuration for animated textures
+        const ANIMATED_TEXTURES = {
+            water: {
+                enabled: true,
+                frametime: 1,      // Time per frame in Minecraft ticks (20 ticks/second)
+                interpolate: true   // Smooth interpolation between frames
+            },
+            lava: {
+                enabled: true,
+                frametime: 2,       // Lava animates slower
+                interpolate: true
+            }
+        };
+        
+        // Texture animation state
+        class TextureAnimation {
+            constructor(textureName, config) {
+                this.textureName = textureName;
+                this.config = config;
+                this.frameTime = config.frametime * 50; // Convert to milliseconds (50ms per tick)
+                this.frameDelta = 0;
+                this.frameIndex = 0;
+                this.frames = 1;
+                this.frameHeight = 1;
+                this.isAnimated = false;
+            }
+            
+            // Initialize with texture dimensions
+            init(texture) {
+                if (!texture || !texture.image) return;
+                
+                const width = texture.image.width;
+                const height = texture.image.height;
+                
+                // Check if texture is animated (height > width means multiple frames stacked vertically)
+                if (height > width) {
+                    this.frames = Math.floor(height / width);
+                    this.frameHeight = 1 / this.frames;
+                    this.isAnimated = true;
+                    console.log(`✓ Animated texture detected: ${this.textureName} (${this.frames} frames)`);
+                }
+            }
+            
+            // Update animation (called each frame with delta time in ms)
+            update(delta, material) {
+                if (!this.isAnimated || !material || !material.map) return;
+                
+                this.frameDelta += delta;
+                
+                if (this.frameDelta >= this.frameTime) {
+                    this.frameDelta -= this.frameTime;
+                    this.frameIndex = (this.frameIndex + 1) % this.frames;
+                    
+                    // Update texture offset to show current frame
+                    // In Minecraft, animated textures are stacked vertically
+                    material.map.offset.y = this.frameIndex * this.frameHeight;
+                    material.map.needsUpdate = true;
+                }
+            }
+        }
+        
+        // Create animation controllers for animated textures
+        const textureAnimations = new Map();
+        
+        Object.entries(ANIMATED_TEXTURES).forEach(([textureName, config]) => {
+            if (config.enabled) {
+                const animation = new TextureAnimation(textureName, config);
+                const texture = blockTextures[textureName];
+                
+                if (texture) {
+                    animation.init(texture);
+                    if (animation.isAnimated) {
+                        textureAnimations.set(textureName, animation);
+                    }
+                }
+            }
+        });
+        
+        // Function to update all animated textures
+        let lastAnimationTime = performance.now();
+        function updateTextureAnimations() {
+            const currentTime = performance.now();
+            const delta = currentTime - lastAnimationTime;
+            lastAnimationTime = currentTime;
+            
+            textureAnimations.forEach((animation, textureName) => {
+                const material = textureMaterials[textureName];
+                if (material) {
+                    animation.update(delta, material);
+                }
+            });
+        }
+        
+        // Re-check for animations when real textures are loaded
+        function initializeTextureAnimations() {
+            // Clear existing animations
+            textureAnimations.clear();
+            
+            // Re-initialize with loaded textures
+            Object.entries(ANIMATED_TEXTURES).forEach(([textureName, config]) => {
+                if (config.enabled) {
+                    const animation = new TextureAnimation(textureName, config);
+                    const texture = blockTextures[textureName];
+                    
+                    if (texture) {
+                        animation.init(texture);
+                        if (animation.isAnimated) {
+                            textureAnimations.set(textureName, animation);
+                            console.log(`✓ Initialized animation for: ${textureName}`);
+                        }
+                    }
+                }
+            });
+        }
+        
+        console.log('✓ Texture animation system initialized');
 
         // Chunk-based rendering system (like Minecraft)
         const CHUNK_SIZE = 16;
@@ -4758,6 +4883,11 @@
             
             animatePlayers(); // Smooth player interpolation and animation
             updateCamera();
+            
+            // Update animated textures (water, lava, etc.)
+            if (typeof updateTextureAnimations === 'function') {
+                updateTextureAnimations();
+            }
             
             // Throttle frustum culling - not needed every frame in 2D mode
             if (animationFrame % FRUSTUM_UPDATE_INTERVAL === 0) {
