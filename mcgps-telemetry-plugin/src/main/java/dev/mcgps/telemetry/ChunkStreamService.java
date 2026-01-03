@@ -27,8 +27,8 @@ import org.bukkit.scheduler.BukkitTask;
 public class ChunkStreamService {
     
     private static final long CHUNK_UPDATE_INTERVAL_TICKS = 20L; // Every 1 second (check more frequently)
-    private static final int CHUNK_RADIUS = 8; // 16x16 chunks view distance (256x256 blocks)
-    private static final int UNLOAD_CHUNK_RADIUS = 12; // Unload chunks beyond this distance
+    private static final int CHUNK_RADIUS = 4; // 8x8 chunks view distance (128x128 blocks)
+    private static final int UNLOAD_CHUNK_RADIUS = 6; // Unload chunks beyond this distance
     private static final int SAMPLE_INTERVAL = 1; // Sample every block for no gaps
     private static final int MAX_HEIGHT_SCAN = 320; // Scan from world height
     private static final int MIN_HEIGHT_SCAN = -64; // Down to world bottom
