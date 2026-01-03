@@ -30,9 +30,7 @@ public class ChunkStreamService {
     private static final int CHUNK_RADIUS = 4; // 8x8 chunks view distance (128x128 blocks)
     private static final int UNLOAD_CHUNK_RADIUS = 6; // Unload chunks beyond this distance
     private static final int SAMPLE_INTERVAL = 1; // Sample every block for no gaps
-    private static final int MAX_HEIGHT_SCAN = 320; // Scan from world height
-    private static final int MIN_HEIGHT_SCAN = -64; // Down to world bottom
-    private static final int HEIGHT_ABOVE_PLAYER = 50; // Scan this many blocks above player
+    private static final int SURFACE_DEPTH = 48; // Scan deeper to capture cave entrances and ravines
     private static final int CHUNKS_PER_TICK = 4; // Send up to 4 new chunks per update cycle
     
     private final JavaPlugin plugin;
@@ -155,51 +153,108 @@ public class ChunkStreamService {
     
     /**
      * Stream a single chunk worth of blocks
-     * Now captures ALL blocks with exposed faces (adjacent to air or water)
+     * Uses heightmap-based surface detection to capture terrain including cliffs
      */
     private void streamSingleChunk(Player player, World world, int chunkX, int chunkZ, int playerY) {
         if (world == null) return;
         
         int startX = chunkX * 16;
         int startZ = chunkZ * 16;
-        int endX = startX + 15;
-        int endZ = startZ + 15;
-        
-        // Scan the full vertical range of the world to capture all terrain
-        // This ensures chunks are complete regardless of player Y position
-        int startY = world.getMaxHeight() - 1;
-        int endY = world.getMinHeight();
         
         List<BlockData> blocks = new ArrayList<>();
         
-        // Scan every block in the chunk volume
-        for (int x = startX; x <= endX; x += SAMPLE_INTERVAL) {
-            for (int z = startZ; z <= endZ; z += SAMPLE_INTERVAL) {
-                for (int y = startY; y >= endY; y--) {
+        // First pass: Build heightmap to find surface at each X,Z position
+        int[][] heightMap = new int[16][16];
+        int maxSurfaceY = world.getMinHeight();
+        int minSurfaceY = world.getMaxHeight();
+        
+        for (int lx = 0; lx < 16; lx++) {
+            for (int lz = 0; lz < 16; lz++) {
+                int x = startX + lx;
+                int z = startZ + lz;
+                
+                // Find highest non-air block (the surface)
+                int surfaceY = world.getMinHeight();
+                for (int y = world.getMaxHeight() - 1; y >= world.getMinHeight(); y--) {
+                    Material type = world.getBlockAt(x, y, z).getType();
+                    if (!isAir(type)) {
+                        surfaceY = y;
+                        break;
+                    }
+                }
+                heightMap[lx][lz] = surfaceY;
+                maxSurfaceY = Math.max(maxSurfaceY, surfaceY);
+                minSurfaceY = Math.min(minSurfaceY, surfaceY);
+            }
+        }
+        
+        // Calculate global scan floor based on chunk's lowest surface point
+        // This ensures cliff faces are captured (we scan down from each column's surface
+        // to the chunk's global minimum minus depth buffer)
+        int globalFloor = Math.max(world.getMinHeight(), minSurfaceY - SURFACE_DEPTH);
+        
+        // For overworld, limit to Y >= 0 (skip deep underground/deepslate layer)
+        // The important surface features are above Y=0
+        String worldName = world.getName();
+        boolean isOverworld = worldName.equals("world") || worldName.equals("overworld");
+        if (isOverworld) {
+            globalFloor = Math.max(0, globalFloor);
+        }
+        
+        // Second pass: Collect blocks from each column's surface down to global floor
+        // This captures cliff faces where neighboring columns are lower
+        for (int lx = 0; lx < 16; lx++) {
+            for (int lz = 0; lz < 16; lz++) {
+                int x = startX + lx;
+                int z = startZ + lz;
+                int localSurface = heightMap[lx][lz];
+                
+                // Scan from this column's surface down to the global floor
+                // This ensures cliff faces exposed to lower terrain are included
+                for (int y = localSurface; y >= globalFloor; y--) {
                     Block block = world.getBlockAt(x, y, z);
                     Material type = block.getType();
                     
                     // Skip air blocks
-                    if (type == Material.AIR || type == Material.CAVE_AIR || type == Material.VOID_AIR) {
-                        continue;
-                    }
+                    if (isAir(type)) continue;
                     
                     String blockType = getSimplifiedBlockType(type);
                     
                     // Skip vegetation
-                    if (blockType.equals("vegetation")) {
-                        continue;
-                    }
+                    if (blockType.equals("vegetation")) continue;
                     
-                    // Always include ALL water blocks - viewer needs complete water data
-                    // to properly cull internal faces at chunk boundaries
+                    // Include water blocks
                     if (blockType.equals("water")) {
                         blocks.add(new BlockData(x, y, z, blockType));
                         continue;
                     }
                     
-                    // Check if this solid block has any exposed face (adjacent to air or water)
+                    // Check if this solid block has any exposed face
                     if (hasExposedFace(world, x, y, z)) {
+                        blocks.add(new BlockData(x, y, z, blockType));
+                    }
+                }
+            }
+        }
+        
+        // Also scan above surface for floating blocks, trees, structures
+        for (int lx = 0; lx < 16; lx++) {
+            for (int lz = 0; lz < 16; lz++) {
+                int x = startX + lx;
+                int z = startZ + lz;
+                int localSurface = heightMap[lx][lz];
+                
+                // Scan above surface up to world height
+                for (int y = localSurface + 1; y < world.getMaxHeight(); y++) {
+                    Block block = world.getBlockAt(x, y, z);
+                    Material type = block.getType();
+                    
+                    if (isAir(type)) continue;
+                    
+                    String blockType = getSimplifiedBlockType(type);
+                    if (blockType.equals("vegetation")) continue;
+                    
+                    if (blockType.equals("water") || hasExposedFace(world, x, y, z)) {
                         blocks.add(new BlockData(x, y, z, blockType));
                     }
                 }
@@ -209,6 +264,13 @@ public class ChunkStreamService {
         if (!blocks.isEmpty()) {
             emitChunkData(player, world, chunkX, chunkZ, blocks);
         }
+    }
+    
+    /**
+     * Check if a block is air (any type)
+     */
+    private boolean isAir(Material type) {
+        return type == Material.AIR || type == Material.CAVE_AIR || type == Material.VOID_AIR;
     }
     
     /**

@@ -1723,6 +1723,125 @@
         let needsRebuild = false;
         let initialCameraPositioned = false;
         
+        // ========== DIRTY SECTION TRACKING & DEBOUNCING ==========
+        // Track dirty 3D sections that need rebuilding
+        const dirtySections = new Set();
+        let rebuildScheduled = false;
+        const REBUILD_DEBOUNCE_MS = 16; // Debounce rebuilds to ~1 frame (60fps)
+        const MAX_REBUILDS_PER_FRAME = 8; // Limit rebuilds per frame to avoid stalls
+        const sectionRebuildTimes = new Map(); // Track last rebuild time per section
+        const MIN_REBUILD_INTERVAL_MS = 100; // Don't rebuild same section more than 10x/sec
+        
+        // Mark a 3D section as dirty and schedule rebuild
+        function markSectionDirty(sectionKey) {
+            dirtySections.add(sectionKey);
+            scheduleRebuild();
+        }
+        
+        // Mark section dirty + neighbors if block is on boundary
+        function markSectionAndNeighborsDirty(x, y, z) {
+            const cx = Math.floor(x / CHUNK_SIZE);
+            const cy = Math.floor(y / CHUNK_SIZE);
+            const cz = Math.floor(z / CHUNK_SIZE);
+            const localX = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+            const localY = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+            const localZ = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+            
+            // Always mark the block's section dirty
+            markSectionDirty(`${cx},${cy},${cz}`);
+            
+            // Mark neighbors only if on boundary (0 or 15)
+            if (localX === 0) markSectionDirty(`${cx - 1},${cy},${cz}`);
+            if (localX === 15) markSectionDirty(`${cx + 1},${cy},${cz}`);
+            if (localY === 0) markSectionDirty(`${cx},${cy - 1},${cz}`);
+            if (localY === 15) markSectionDirty(`${cx},${cy + 1},${cz}`);
+            if (localZ === 0) markSectionDirty(`${cx},${cy},${cz - 1}`);
+            if (localZ === 15) markSectionDirty(`${cx},${cy},${cz + 1}`);
+        }
+        
+        // Schedule a debounced rebuild
+        function scheduleRebuild() {
+            if (rebuildScheduled) return;
+            rebuildScheduled = true;
+            
+            setTimeout(() => {
+                rebuildScheduled = false;
+                processDirtySections();
+            }, REBUILD_DEBOUNCE_MS);
+        }
+        
+        // Process dirty sections with rate limiting
+        function processDirtySections() {
+            if (dirtySections.size === 0) return;
+            
+            const now = Date.now();
+            let rebuiltCount = 0;
+            const sectionsToRebuild = [];
+            
+            // Collect sections that can be rebuilt (respecting rate limit)
+            for (const sectionKey of dirtySections) {
+                const lastRebuild = sectionRebuildTimes.get(sectionKey) || 0;
+                if (now - lastRebuild >= MIN_REBUILD_INTERVAL_MS) {
+                    sectionsToRebuild.push(sectionKey);
+                    if (sectionsToRebuild.length >= MAX_REBUILDS_PER_FRAME) break;
+                }
+            }
+            
+            // Rebuild collected sections
+            sectionsToRebuild.forEach(sectionKey => {
+                rebuildSection(sectionKey);
+                sectionRebuildTimes.set(sectionKey, now);
+                dirtySections.delete(sectionKey);
+                rebuiltCount++;
+            });
+            
+            // If we still have dirty sections, schedule another rebuild
+            if (dirtySections.size > 0) {
+                scheduleRebuild();
+            }
+            
+            if (rebuiltCount > 0) {
+                updateBlockCount();
+            }
+        }
+        
+        // Rebuild a single 3D section efficiently
+        function rebuildSection(sectionKey) {
+            const [cx, cy, cz] = sectionKey.split(',').map(Number);
+            
+            // Remove old mesh if exists
+            if (chunkMeshes.has(sectionKey)) {
+                const oldMesh = chunkMeshes.get(sectionKey);
+                chunkGroup.remove(oldMesh);
+                oldMesh.traverse(obj => {
+                    if (obj.geometry) obj.geometry.dispose();
+                });
+                chunkMeshes.delete(sectionKey);
+            }
+            
+            // Collect blocks in this section from the 2D chunk that contains it
+            const key2D = getChunkKey2D(cx, cz);
+            const chunkInfo = loadedChunkData.get(key2D);
+            if (!chunkInfo) return;
+            
+            const sectionBlocks = chunkInfo.blocks.filter(b => 
+                Math.floor(b.y / CHUNK_SIZE) === cy
+            );
+            
+            if (sectionBlocks.length === 0) return;
+            
+            // Build new mesh
+            const mesh = buildChunkMesh(sectionBlocks, globalBlockMap);
+            mesh.position.set(0, 0, 0);
+            mesh.userData.chunkCenter = new THREE.Vector3(
+                (cx + 0.5) * CHUNK_SIZE,
+                (cy + 0.5) * CHUNK_SIZE,
+                (cz + 0.5) * CHUNK_SIZE
+            );
+            chunkMeshes.set(sectionKey, mesh);
+            chunkGroup.add(mesh);
+        }
+        
         // Loading screen state
         const MIN_CHUNKS_TO_SHOW = 64; // Minimum chunks before hiding loading screen (8x8 area around camera)
         let isLoadingComplete = false;
@@ -2154,61 +2273,13 @@
         }
         
         // Remove chunks (unload) from a specific world
+        // DISABLED: Keep chunks visible on the map even when player moves away
+        // The server still tracks what the player has seen, but we keep rendering them
         function removeChunks(chunks, worldName = 'world') {
-            // Only process if it's the current world
-            if (worldName !== currentWorld) {
-                // Just remove from storage for other worlds
-                const otherData = worldChunkData.get(worldName);
-                const otherBlocks = worldBlockMaps.get(worldName);
-                if (otherData && otherBlocks) {
-                    chunks.forEach(({ x, z }) => {
-                        const key = getChunkKey2D(x, z);
-                        const chunkInfo = otherData.get(key);
-                        if (chunkInfo) {
-                            chunkInfo.blocks.forEach(b => {
-                                otherBlocks.delete(`${b.x},${b.y},${b.z}`);
-                            });
-                            otherData.delete(key);
-                        }
-                    });
-                }
-                return;
-            }
-            
-            chunks.forEach(({ x, z }) => {
-                const key = getChunkKey2D(x, z);
-                
-                // Remove from data
-                const chunkInfo = loadedChunkData.get(key);
-                if (chunkInfo) {
-                    chunkInfo.blocks.forEach(b => {
-                        globalBlockMap.delete(`${b.x},${b.y},${b.z}`);
-                    });
-                    loadedChunkData.delete(key);
-                }
-                
-                // Find and remove 3D chunk meshes for this 2D chunk
-                const keysToRemove = [];
-                chunkMeshes.forEach((mesh, meshKey) => {
-                    const [cx, cy, cz] = meshKey.split(',').map(Number);
-                    if (cx === x && cz === z) {
-                        keysToRemove.push(meshKey);
-                    }
-                });
-                
-                keysToRemove.forEach(meshKey => {
-                    const mesh = chunkMeshes.get(meshKey);
-                    if (mesh) {
-                        chunkGroup.remove(mesh);
-                        mesh.traverse(obj => {
-                            if (obj.geometry) obj.geometry.dispose();
-                        });
-                        chunkMeshes.delete(meshKey);
-                    }
-                });
-            });
-            
-            updateBlockCount();
+            // Don't remove chunks - keep them visible on the map
+            // This makes the map build up over time as the player explores
+            console.log(`Ignoring unload request for ${chunks.length} chunks in ${worldName} (keeping visible)`);
+            return;
         }
         
         // Update block count display
@@ -2299,6 +2370,9 @@
             });
             chunkMeshes.clear();
             
+            // Clear dirty sections since we're rebuilding everything
+            dirtySections.clear();
+            
             // Rebuild each 2D chunk's 3D sections
             loadedChunkData.forEach((chunkInfo, key2D) => {
                 buildAndAddChunkMesh(key2D, chunkInfo.blocks);
@@ -2307,65 +2381,13 @@
             updateBlockCount();
         }
         
-        // Rebuild only affected 3D chunk section (for block changes)
-        function rebuildChunk(chunkKey) {
-            // Remove old chunk mesh if exists
-            if (chunkMeshes.has(chunkKey)) {
-                const oldMesh = chunkMeshes.get(chunkKey);
-                chunkGroup.remove(oldMesh);
-                oldMesh.traverse(obj => {
-                    if (obj.geometry) obj.geometry.dispose();
-                });
-                chunkMeshes.delete(chunkKey);
-            }
-            
-            // Get blocks in this 3D chunk section
-            const [cx, cy, cz] = chunkKey.split(',').map(Number);
-            const chunkBlockList = [];
-            
-            // Collect from all loaded 2D chunks that overlap this 3D section
-            loadedChunkData.forEach(chunkInfo => {
-                chunkInfo.blocks.forEach(b => {
-                    if (Math.floor(b.x / CHUNK_SIZE) === cx &&
-                        Math.floor(b.y / CHUNK_SIZE) === cy &&
-                        Math.floor(b.z / CHUNK_SIZE) === cz) {
-                        chunkBlockList.push(b);
-                    }
-                });
-            });
-            
-            if (chunkBlockList.length === 0) return;
-            
-            // Rebuild mesh
-            const mesh = buildChunkMesh(chunkBlockList, globalBlockMap);
-            mesh.position.set(0, 0, 0);
-            mesh.userData.chunkCenter = new THREE.Vector3(
-                (cx + 0.5) * CHUNK_SIZE,
-                (cy + 0.5) * CHUNK_SIZE,
-                (cz + 0.5) * CHUNK_SIZE
-            );
-            chunkMeshes.set(chunkKey, mesh);
-            chunkGroup.add(mesh);
-        }
-        
-        // Handle real-time block changes
+        // Handle real-time block changes with debounced section rebuilding
         function handleBlockChange(data) {
             const { type, x, y, z, blockType } = data;
             const key = `${x},${y},${z}`;
-            const chunkKey = getChunkKey(x, y, z);
             const chunkX = Math.floor(x / CHUNK_SIZE);
             const chunkZ = Math.floor(z / CHUNK_SIZE);
             const key2D = getChunkKey2D(chunkX, chunkZ);
-            
-            // Get adjacent chunk keys that might need updating
-            const adjacentChunks = new Set([chunkKey]);
-            [
-                [x+1, y, z], [x-1, y, z],
-                [x, y+1, z], [x, y-1, z],
-                [x, y, z+1], [x, y, z-1]
-            ].forEach(([ax, ay, az]) => {
-                adjacentChunks.add(getChunkKey(ax, ay, az));
-            });
             
             if (type === 'block_break') {
                 // Remove block from global map
@@ -2393,10 +2415,8 @@
                 }
             }
             
-            // Rebuild affected chunks
-            adjacentChunks.forEach(ck => rebuildChunk(ck));
-            
-            updateBlockCount();
+            // Mark affected section + boundary neighbors as dirty (debounced rebuild)
+            markSectionAndNeighborsDirty(x, y, z);
         }
 
         // Frustum culling update (called each frame)
