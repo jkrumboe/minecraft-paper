@@ -10,7 +10,9 @@ McGPS is a complete solution for visualizing Minecraft player activity in real-t
 
 ### Features
 
-- 🗺️ **Real-time 3D World** - Procedural Minecraft-style block textures (grass, stone, ores, etc.)
+- 🗺️ **Real-time 3D World** - Authentic Minecraft textures with animated water and lava
+- 🎨 **Texture System** - Load real Minecraft textures or use procedural fallback
+- 🌊 **Animated Blocks** - Flowing water and lava animations like vanilla Minecraft
 - 👤 **Player Skins** - Fetches actual player skins from Mojang API
 - 🎮 **Multiple Camera Modes** - Free cam, 2D top-down, first-person, and third-person views
 - 📦 **Chunk-based Rendering** - Efficient world streaming around players
