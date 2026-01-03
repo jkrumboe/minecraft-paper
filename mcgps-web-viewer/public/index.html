@@ -210,9 +210,87 @@
             background: #00ff88;
             color: #000;
         }
+        
+        /* Loading screen overlay */
+        #loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #1a1a1a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            transition: opacity 0.5s ease-out;
+        }
+        #loading-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        #loading-screen.removed {
+            display: none;
+        }
+        .loading-title {
+            font-size: 32px;
+            color: #00ff88;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+        }
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid #333;
+            border-top: 4px solid #00ff88;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loading-status {
+            font-size: 16px;
+            color: #888;
+            margin-bottom: 10px;
+        }
+        .loading-progress {
+            width: 300px;
+            height: 8px;
+            background: #333;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        .loading-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #00ff88, #00cc66);
+            width: 0%;
+            transition: width 0.3s ease-out;
+            border-radius: 4px;
+        }
+        .loading-chunks {
+            font-size: 14px;
+            color: #666;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
+    <!-- Loading screen overlay -->
+    <div id="loading-screen">
+        <div class="loading-title">🗺️ McGPS Viewer</div>
+        <div class="loading-spinner"></div>
+        <div class="loading-status" id="loading-status">Connecting to server...</div>
+        <div class="loading-progress">
+            <div class="loading-progress-bar" id="loading-progress-bar"></div>
+        </div>
+        <div class="loading-chunks" id="loading-chunks">0 chunks loaded</div>
+    </div>
+    
     <div id="canvas-container"></div>
     
     <!-- First person crosshair -->
@@ -298,26 +376,86 @@
         scene.fog = new THREE.Fog(0x87ceeb, 100, 300);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 100, -100);
         
-        // Calculate initial yaw and pitch to look at origin
-        const initialTarget = new THREE.Vector3(0, 70, 0);
-        const dx = initialTarget.x - camera.position.x;
-        const dy = initialTarget.y - camera.position.y;
-        const dz = initialTarget.z - camera.position.z;
-        let yaw = Math.atan2(dx, dz) + Math.PI;
-        let pitch = 0; // Look horizontally
+        // Try to restore camera position from localStorage
+        let yaw, pitch;
+        const savedCamera = localStorage.getItem('mcgps_camera');
+        if (savedCamera) {
+            try {
+                const camData = JSON.parse(savedCamera);
+                camera.position.set(camData.x, camData.y, camData.z);
+                yaw = camData.yaw;
+                pitch = camData.pitch;
+                camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+                console.log('Restored camera position from localStorage');
+            } catch (e) {
+                // Fall back to default
+                camera.position.set(0, 100, -100);
+                yaw = Math.PI;
+                pitch = 0;
+            }
+        } else {
+            camera.position.set(0, 100, -100);
+            // Calculate initial yaw and pitch to look at origin
+            const initialTarget = new THREE.Vector3(0, 70, 0);
+            const dx = initialTarget.x - camera.position.x;
+            const dz = initialTarget.z - camera.position.z;
+            yaw = Math.atan2(dx, dz) + Math.PI;
+            pitch = 0; // Look horizontally
+        }
         
         // Apply initial rotation
         camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+        
+        // Save camera position periodically
+        function saveCameraPosition() {
+            const camData = {
+                x: camera.position.x,
+                y: camera.position.y,
+                z: camera.position.z,
+                yaw: yaw,
+                pitch: pitch
+            };
+            localStorage.setItem('mcgps_camera', JSON.stringify(camData));
+        }
+        
+        // Save camera position every 2 seconds and on page unload
+        setInterval(saveCameraPosition, 2000);
+        window.addEventListener('beforeunload', saveCameraPosition);
 
         const renderer = new THREE.WebGLRenderer({ 
             antialias: false,  // Disable for performance
-            powerPreference: 'high-performance'
+            powerPreference: 'high-performance',
+            stencil: false,    // Not needed, saves memory
+            depth: true
         });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio
+        renderer.setPixelRatio(1); // Force 1:1 pixel ratio for performance (was capped at 2)
+        renderer.sortObjects = false; // Disable sorting since we handle transparency manually
         document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        // Cache frequently accessed DOM elements for performance
+        const DOM = {
+            fps: document.getElementById('fps'),
+            blockCount: document.getElementById('block-count'),
+            renderedChunks: document.getElementById('rendered-chunks'),
+            playerCount: document.getElementById('player-count'),
+            cameraPos: document.getElementById('camera-pos'),
+            crosshair: document.getElementById('crosshair'),
+            currentWorld: document.getElementById('current-world')
+        };
+        
+        // Throttle camera position display updates
+        let lastCameraPosUpdate = 0;
+        let lastCameraPosText = '';
+        function updateCameraPosDisplay(text) {
+            const now = performance.now();
+            if (text !== lastCameraPosText && now - lastCameraPosUpdate > 100) {
+                DOM.cameraPos.textContent = text;
+                lastCameraPosText = text;
+                lastCameraPosUpdate = now;
+            }
+        }
 
         // Player selection
         const raycaster = new THREE.Raycaster();
@@ -420,6 +558,12 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
+        // Reusable objects for updateCamera (avoid allocations each frame)
+        const tempForward = new THREE.Vector3();
+        const tempRight = new THREE.Vector3();
+        const tempEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+        const tempQuat = new THREE.Quaternion();
+
         function updateCamera() {
             // Handle different camera modes
             if (cameraMode === 'firstperson' && followTarget) {
@@ -446,17 +590,16 @@
                         targetPlayer.currentZ - 0.5
                     );
                     
-                    // Smoothly interpolate camera rotation (0.5 = more responsive aiming)
-                    const targetQuat = new THREE.Quaternion();
-                    targetQuat.setFromEuler(new THREE.Euler(playerPitch, playerYaw, 0, 'YXZ'));
-                    camera.quaternion.slerp(targetQuat, 0.5);
+                    // Smoothly interpolate camera rotation using cached quaternion
+                    tempEuler.set(playerPitch, playerYaw, 0);
+                    tempQuat.setFromEuler(tempEuler);
+                    camera.quaternion.slerp(tempQuat, 0.5);
                 }
                 
                 // Show crosshair in first person
-                document.getElementById('crosshair').style.display = 'block';
+                DOM.crosshair.style.display = 'block';
                 
-                document.getElementById('camera-pos').textContent = 
-                    `👁️ First Person: ${targetData?.name || 'Unknown'}`;
+                updateCameraPosDisplay(`👁️ First Person: ${targetData?.name || 'Unknown'}`);
                 return;
             } else {
                 // Make sure all players are visible when not in first person
@@ -464,7 +607,7 @@
                     player.group.visible = true;
                 });
                 // Hide crosshair when not in first person
-                document.getElementById('crosshair').style.display = 'none';
+                DOM.crosshair.style.display = 'none';
             }
             
             if (cameraMode === 'thirdperson' && followTarget) {
@@ -495,8 +638,7 @@
                     // Look at the player's head
                     camera.lookAt(targetPlayer.currentX, targetPlayer.currentY + 1.6 + sneakOffset, targetPlayer.currentZ);
                 }
-                document.getElementById('camera-pos').textContent = 
-                    `🎮 Third Person: ${targetData?.name || 'Unknown'}`;
+                updateCameraPosDisplay(`🎮 Third Person: ${targetData?.name || 'Unknown'}`);
                 return;
             }
             
@@ -513,34 +655,35 @@
                 if (keys.space) camera.position.y += moveSpeed;
                 if (keys.shift) camera.position.y = Math.max(50, camera.position.y - moveSpeed);
                 
-                // Camera always looks straight down
-                camera.quaternion.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0, 'YXZ'));
+                // Camera always looks straight down - use cached euler
+                tempEuler.set(-Math.PI / 2, 0, 0);
+                camera.quaternion.setFromEuler(tempEuler);
                 
-                document.getElementById('camera-pos').textContent = 
-                    `2D: ${Math.floor(camera.position.x)}, ${Math.floor(camera.position.y)}, ${Math.floor(camera.position.z)}`;
+                updateCameraPosDisplay(`2D: ${Math.floor(camera.position.x)}, ${Math.floor(camera.position.y)}, ${Math.floor(camera.position.z)}`);
                 return;
             }
             
             // Free cam mode (default)
             // Calculate forward direction from yaw (ignoring pitch for movement)
-            const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
-            const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+            // Reuse cached vectors instead of creating new ones
+            tempForward.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+            tempRight.set(Math.cos(yaw), 0, -Math.sin(yaw));
             const moveSpeed = 0.5;
             const verticalSpeed = 0.3;
 
             // Move camera based on keys
-            if (keys.w) camera.position.addScaledVector(forward, moveSpeed);
-            if (keys.s) camera.position.addScaledVector(forward, -moveSpeed);
-            if (keys.d) camera.position.addScaledVector(right, moveSpeed);
-            if (keys.a) camera.position.addScaledVector(right, -moveSpeed);
+            if (keys.w) camera.position.addScaledVector(tempForward, moveSpeed);
+            if (keys.s) camera.position.addScaledVector(tempForward, -moveSpeed);
+            if (keys.d) camera.position.addScaledVector(tempRight, moveSpeed);
+            if (keys.a) camera.position.addScaledVector(tempRight, -moveSpeed);
             if (keys.space) camera.position.y += verticalSpeed;
             if (keys.shift) camera.position.y -= verticalSpeed;
 
             // Update camera rotation using quaternion to avoid gimbal lock
-            camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+            tempEuler.set(pitch, yaw, 0);
+            camera.quaternion.setFromEuler(tempEuler);
             
-            document.getElementById('camera-pos').textContent = 
-                `${Math.floor(camera.position.x)}, ${Math.floor(camera.position.y)}, ${Math.floor(camera.position.z)}`;
+            updateCameraPosDisplay(`${Math.floor(camera.position.x)}, ${Math.floor(camera.position.y)}, ${Math.floor(camera.position.z)}`);
         }
         
         // Camera mode switching functions
@@ -1608,8 +1751,13 @@
         const worldBlockMaps = new Map(); // Map<worldName, Map<blockKey, blockType>>
         const worldChunkMeshes = new Map(); // Map<worldName, Map<chunkKey, mesh>>
         
-        // Current displayed world
-        let currentWorld = 'world';
+        // Current displayed world (restore from localStorage if available)
+        let currentWorld = localStorage.getItem('mcgps_world') || 'world';
+        
+        // Save current world to localStorage when it changes
+        function saveCurrentWorld() {
+            localStorage.setItem('mcgps_world', currentWorld);
+        }
         
         // Helper to get chunk data for current world
         function getLoadedChunkData() {
@@ -1643,7 +1791,354 @@
         const players = new Map();
         let pendingBlocks = null;
         let needsRebuild = false;
-        let initialCameraPositioned = false;
+        // Skip repositioning camera if we restored from localStorage
+        let initialCameraPositioned = !!localStorage.getItem('mcgps_camera');
+        
+        // ========== PRIORITY CHUNK LOADING SYSTEM ==========
+        // Inspired by Minecraft's chunk loading priorities
+        class ChunkLoadQueue {
+            constructor() {
+                this.queue = [];
+                this.processing = false;
+                this.batchSize = 4; // Process 4 chunks per frame
+                this.frameDelay = 16; // ~60fps
+                this.recentChunks = []; // Track recently added chunks for adjacent rebuild
+            }
+            
+            // Add chunk with priority (lower = higher priority)
+            add(chunkData, priority = 0) {
+                // Check if already queued
+                const key = `${chunkData.chunkX},${chunkData.chunkZ}`;
+                const existing = this.queue.findIndex(c => 
+                    `${c.chunkX},${c.chunkZ}` === key && c.world === chunkData.world
+                );
+                
+                if (existing >= 0) {
+                    // Update priority if new one is higher
+                    if (priority < this.queue[existing].priority) {
+                        this.queue[existing].priority = priority;
+                        this.queue.sort((a, b) => a.priority - b.priority);
+                    }
+                    return;
+                }
+                
+                this.queue.push({ ...chunkData, priority });
+                this.queue.sort((a, b) => a.priority - b.priority);
+                
+                if (!this.processing) {
+                    this.processQueue();
+                }
+            }
+            
+            // Process chunks in batches
+            processQueue() {
+                if (this.queue.length === 0) {
+                    this.processing = false;
+                    // Batch complete - rebuild adjacent chunks to fix water seams
+                    this.rebuildAdjacentChunks();
+                    return;
+                }
+                
+                this.processing = true;
+                
+                // Track which chunks we're adding this batch (for adjacent rebuild)
+                const batch = this.queue.splice(0, this.batchSize);
+                batch.forEach(chunk => {
+                    if (chunk.world === currentWorld) {
+                        addChunkImmediate(chunk.chunkX, chunk.chunkZ, chunk.blocks, chunk.world);
+                        // Track for adjacent rebuild
+                        this.recentChunks.push({ chunkX: chunk.chunkX, chunkZ: chunk.chunkZ });
+                    } else {
+                        // Store for other worlds without rendering
+                        storeChunkData(chunk.chunkX, chunk.chunkZ, chunk.blocks, chunk.world);
+                    }
+                });
+                
+                // Update loading progress
+                updateLoadingProgress(loadedChunkData.size);
+                if (loadedChunkData.size >= MIN_CHUNKS_TO_SHOW) {
+                    hideLoadingScreen();
+                }
+                
+                // Schedule next batch
+                setTimeout(() => this.processQueue(), this.frameDelay);
+            }
+            
+            // Rebuild chunks adjacent to recently added chunks (fixes water seams)
+            rebuildAdjacentChunks() {
+                if (this.recentChunks.length === 0) return;
+                
+                const adjacentToRebuild = new Set();
+                
+                this.recentChunks.forEach(({ chunkX, chunkZ }) => {
+                    // Check all 4 adjacent chunks
+                    const adjacentKeys = [
+                        getChunkKey2D(chunkX - 1, chunkZ),
+                        getChunkKey2D(chunkX + 1, chunkZ),
+                        getChunkKey2D(chunkX, chunkZ - 1),
+                        getChunkKey2D(chunkX, chunkZ + 1)
+                    ];
+                    
+                    adjacentKeys.forEach(adjKey => {
+                        // Only rebuild if the adjacent chunk exists and wasn't just added
+                        const adjChunk = loadedChunkData.get(adjKey);
+                        if (adjChunk) {
+                            const wasJustAdded = this.recentChunks.some(
+                                c => getChunkKey2D(c.chunkX, c.chunkZ) === adjKey
+                            );
+                            if (!wasJustAdded) {
+                                adjacentToRebuild.add(adjKey);
+                            }
+                        }
+                    });
+                });
+                
+                // Rebuild adjacent chunks
+                adjacentToRebuild.forEach(adjKey => {
+                    const adjChunk = loadedChunkData.get(adjKey);
+                    if (adjChunk) {
+                        buildAndAddChunkMesh(adjKey, adjChunk.blocks);
+                    }
+                });
+                
+                // Clear recent chunks
+                this.recentChunks = [];
+                
+                updateBlockCount();
+            }
+            
+            // Get distance-based priority from a position
+            getPriority(chunkX, chunkZ, centerX, centerZ) {
+                const dx = chunkX - Math.floor(centerX / CHUNK_SIZE);
+                const dz = chunkZ - Math.floor(centerZ / CHUNK_SIZE);
+                return Math.sqrt(dx * dx + dz * dz);
+            }
+            
+            clear() {
+                this.queue = [];
+                this.recentChunks = [];
+            }
+            
+            get length() {
+                return this.queue.length;
+            }
+        }
+        
+        const chunkLoadQueue = new ChunkLoadQueue();
+        
+        // Store chunk data without building mesh (for non-current worlds)
+        function storeChunkData(chunkX, chunkZ, blocks, worldName) {
+            if (!worldChunkData.has(worldName)) {
+                worldChunkData.set(worldName, new Map());
+                worldBlockMaps.set(worldName, new Map());
+                worldChunkMeshes.set(worldName, new Map());
+            }
+            
+            const chunkData = worldChunkData.get(worldName);
+            const blockMap = worldBlockMaps.get(worldName);
+            
+            const key = getChunkKey2D(chunkX, chunkZ);
+            chunkData.set(key, { chunkX, chunkZ, blocks });
+            
+            blocks.forEach(b => {
+                blockMap.set(`${b.x},${b.y},${b.z}`, b.type);
+            });
+        }
+        
+        // Add chunk immediately (bypasses queue, used by queue processor)
+        function addChunkImmediate(chunkX, chunkZ, blocks, worldName) {
+            const key = getChunkKey2D(chunkX, chunkZ);
+            
+            // Store chunk data
+            loadedChunkData.set(key, { chunkX, chunkZ, blocks });
+            
+            // Add blocks to global map
+            blocks.forEach(b => {
+                globalBlockMap.set(`${b.x},${b.y},${b.z}`, b.type);
+            });
+            
+            // Build mesh
+            buildAndAddChunkMesh(key, blocks);
+        }
+
+        // ========== DIRTY SECTION TRACKING & DEBOUNCING ==========
+        // Track dirty 3D sections that need rebuilding
+        const dirtySections = new Set();
+        let rebuildScheduled = false;
+        const REBUILD_DEBOUNCE_MS = 16; // Debounce rebuilds to ~1 frame (60fps)
+        const MAX_REBUILDS_PER_FRAME = 8; // Limit rebuilds per frame to avoid stalls
+        const sectionRebuildTimes = new Map(); // Track last rebuild time per section
+        const MIN_REBUILD_INTERVAL_MS = 100; // Don't rebuild same section more than 10x/sec
+        
+        // Mark a 3D section as dirty and schedule rebuild
+        function markSectionDirty(sectionKey) {
+            dirtySections.add(sectionKey);
+            scheduleRebuild();
+        }
+        
+        // Mark section dirty + neighbors if block is on boundary
+        function markSectionAndNeighborsDirty(x, y, z) {
+            const cx = Math.floor(x / CHUNK_SIZE);
+            const cy = Math.floor(y / CHUNK_SIZE);
+            const cz = Math.floor(z / CHUNK_SIZE);
+            const localX = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+            const localY = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+            const localZ = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+            
+            // Always mark the block's section dirty
+            markSectionDirty(`${cx},${cy},${cz}`);
+            
+            // Mark neighbors only if on boundary (0 or 15)
+            if (localX === 0) markSectionDirty(`${cx - 1},${cy},${cz}`);
+            if (localX === 15) markSectionDirty(`${cx + 1},${cy},${cz}`);
+            if (localY === 0) markSectionDirty(`${cx},${cy - 1},${cz}`);
+            if (localY === 15) markSectionDirty(`${cx},${cy + 1},${cz}`);
+            if (localZ === 0) markSectionDirty(`${cx},${cy},${cz - 1}`);
+            if (localZ === 15) markSectionDirty(`${cx},${cy},${cz + 1}`);
+        }
+        
+        // Schedule a debounced rebuild
+        function scheduleRebuild() {
+            if (rebuildScheduled) return;
+            rebuildScheduled = true;
+            
+            setTimeout(() => {
+                rebuildScheduled = false;
+                processDirtySections();
+            }, REBUILD_DEBOUNCE_MS);
+        }
+        
+        // Process dirty sections with rate limiting
+        function processDirtySections() {
+            if (dirtySections.size === 0) return;
+            
+            const now = Date.now();
+            let rebuiltCount = 0;
+            const sectionsToRebuild = [];
+            
+            // Collect sections that can be rebuilt (respecting rate limit)
+            for (const sectionKey of dirtySections) {
+                const lastRebuild = sectionRebuildTimes.get(sectionKey) || 0;
+                if (now - lastRebuild >= MIN_REBUILD_INTERVAL_MS) {
+                    sectionsToRebuild.push(sectionKey);
+                    if (sectionsToRebuild.length >= MAX_REBUILDS_PER_FRAME) break;
+                }
+            }
+            
+            // Rebuild collected sections
+            sectionsToRebuild.forEach(sectionKey => {
+                rebuildSection(sectionKey);
+                sectionRebuildTimes.set(sectionKey, now);
+                dirtySections.delete(sectionKey);
+                rebuiltCount++;
+            });
+            
+            // If we still have dirty sections, schedule another rebuild
+            if (dirtySections.size > 0) {
+                scheduleRebuild();
+            }
+            
+            if (rebuiltCount > 0) {
+                updateBlockCount();
+            }
+        }
+        
+        // Rebuild a single 3D section efficiently
+        function rebuildSection(sectionKey) {
+            const [cx, cy, cz] = sectionKey.split(',').map(Number);
+            
+            // Remove old mesh if exists
+            if (chunkMeshes.has(sectionKey)) {
+                const oldMesh = chunkMeshes.get(sectionKey);
+                chunkGroup.remove(oldMesh);
+                oldMesh.traverse(obj => {
+                    if (obj.geometry) obj.geometry.dispose();
+                });
+                chunkMeshes.delete(sectionKey);
+            }
+            
+            // Collect blocks in this section from the 2D chunk that contains it
+            const key2D = getChunkKey2D(cx, cz);
+            const chunkInfo = loadedChunkData.get(key2D);
+            if (!chunkInfo) return;
+            
+            const sectionBlocks = chunkInfo.blocks.filter(b => 
+                Math.floor(b.y / CHUNK_SIZE) === cy
+            );
+            
+            if (sectionBlocks.length === 0) return;
+            
+            // Build new mesh
+            const mesh = buildChunkMesh(sectionBlocks, globalBlockMap);
+            mesh.position.set(0, 0, 0);
+            mesh.userData.chunkCenter = new THREE.Vector3(
+                (cx + 0.5) * CHUNK_SIZE,
+                (cy + 0.5) * CHUNK_SIZE,
+                (cz + 0.5) * CHUNK_SIZE
+            );
+            chunkMeshes.set(sectionKey, mesh);
+            chunkGroup.add(mesh);
+        }
+        
+        // Loading screen state
+        const MIN_CHUNKS_TO_SHOW = 64; // Minimum chunks before hiding loading screen (8x8 area around camera)
+        let isLoadingComplete = false;
+        let loadingStartTime = Date.now();
+        
+        // Loading screen functions
+        function updateLoadingProgress(chunksLoaded) {
+            const progressBar = document.getElementById('loading-progress-bar');
+            const chunksText = document.getElementById('loading-chunks');
+            const statusText = document.getElementById('loading-status');
+            
+            if (!progressBar || isLoadingComplete) return;
+            
+            const progress = Math.min(100, (chunksLoaded / MIN_CHUNKS_TO_SHOW) * 100);
+            progressBar.style.width = progress + '%';
+            chunksText.textContent = `${chunksLoaded} chunks loaded`;
+            
+            if (chunksLoaded > 0) {
+                statusText.textContent = 'Loading world data...';
+            }
+        }
+        
+        function hideLoadingScreen() {
+            if (isLoadingComplete) return;
+            isLoadingComplete = true;
+            
+            const loadingScreen = document.getElementById('loading-screen');
+            if (!loadingScreen) return;
+            
+            const statusText = document.getElementById('loading-status');
+            if (statusText) {
+                const loadTime = ((Date.now() - loadingStartTime) / 1000).toFixed(1);
+                statusText.textContent = `World loaded in ${loadTime}s`;
+            }
+            
+            // Fade out and then remove
+            setTimeout(() => {
+                loadingScreen.classList.add('hidden');
+                setTimeout(() => {
+                    loadingScreen.classList.add('removed');
+                }, 500);
+            }, 300);
+        }
+        
+        function showLoadingScreen() {
+            isLoadingComplete = false;
+            loadingStartTime = Date.now();
+            
+            const loadingScreen = document.getElementById('loading-screen');
+            if (!loadingScreen) return;
+            
+            loadingScreen.classList.remove('hidden', 'removed');
+            const progressBar = document.getElementById('loading-progress-bar');
+            if (progressBar) progressBar.style.width = '0%';
+            const statusText = document.getElementById('loading-status');
+            if (statusText) statusText.textContent = 'Loading world data...';
+            const chunksText = document.getElementById('loading-chunks');
+            if (chunksText) chunksText.textContent = '0 chunks loaded';
+        }
         
         // Pre-computed face vertex data for speed with UV coordinates
         // UVs are arranged: [u0,v0, u1,v1, u2,v2, u3,v3] for 4 vertices per face
@@ -1869,6 +2364,12 @@
             
             console.log(`Switching from ${currentWorld} to ${worldName}`);
             
+            // Show loading screen for world switch if new world has no cached chunks
+            const newWorldChunks = worldChunkData.get(worldName);
+            if (!newWorldChunks || newWorldChunks.size < MIN_CHUNKS_TO_SHOW) {
+                showLoadingScreen();
+            }
+            
             // Get current world's meshes BEFORE updating currentWorld
             const oldWorldMeshes = worldChunkMeshes.get(currentWorld);
             
@@ -1883,9 +2384,10 @@
                 });
             }
             
-            // Update current world
+            // Update current world and save to localStorage
             currentWorld = worldName;
-            document.getElementById('current-world').textContent = worldName;
+            saveCurrentWorld();
+            DOM.currentWorld.textContent = worldName;
             
             // Ensure maps exist for the new world
             if (!worldChunkData.has(worldName)) {
@@ -1935,26 +2437,21 @@
             }
             
             updateBlockCount();
+            
+            // Update loading progress and hide if enough chunks
+            updateLoadingProgress(loadedChunkData.size);
+            if (loadedChunkData.size >= MIN_CHUNKS_TO_SHOW) {
+                hideLoadingScreen();
+            }
         }
         
         // Add a single chunk of blocks (incremental loading)
+        // Uses direct add for simplicity and correct water seam handling
         function addChunk(chunkX, chunkZ, blocks, worldName = 'world') {
             // If chunk is for a different world, store it there but don't display
             if (worldName !== currentWorld) {
-                if (!worldChunkData.has(worldName)) {
-                    worldChunkData.set(worldName, new Map());
-                    worldBlockMaps.set(worldName, new Map());
-                    worldChunkMeshes.set(worldName, new Map());
-                }
-                const otherChunkData = worldChunkData.get(worldName);
-                const otherBlockMap = worldBlockMaps.get(worldName);
-                
-                const key = getChunkKey2D(chunkX, chunkZ);
-                otherChunkData.set(key, { chunkX, chunkZ, blocks });
-                blocks.forEach(b => {
-                    otherBlockMap.set(`${b.x},${b.y},${b.z}`, b.type);
-                });
-                return; // Don't build mesh for non-current world
+                storeChunkData(chunkX, chunkZ, blocks, worldName);
+                return;
             }
             
             const key = getChunkKey2D(chunkX, chunkZ);
@@ -1988,76 +2485,90 @@
             
             updateBlockCount();
             
+            // Update loading progress
+            updateLoadingProgress(loadedChunkData.size);
+            
             // Position camera on first chunk if not already positioned
             if (!initialCameraPositioned && loadedChunkData.size >= 4) {
                 positionCameraToViewChunks();
                 initialCameraPositioned = true;
             }
+            
+            // Hide loading screen when enough chunks are loaded
+            if (loadedChunkData.size >= MIN_CHUNKS_TO_SHOW && !isLoadingComplete) {
+                hideLoadingScreen();
+            }
         }
         
-        // Remove chunks (unload) from a specific world
-        function removeChunks(chunks, worldName = 'world') {
-            // Only process if it's the current world
+        // Legacy addChunk for direct adding (used internally after queue processing)
+        function addChunkDirect(chunkX, chunkZ, blocks, worldName = 'world') {
+            // If chunk is for a different world, store it there but don't display
             if (worldName !== currentWorld) {
-                // Just remove from storage for other worlds
-                const otherData = worldChunkData.get(worldName);
-                const otherBlocks = worldBlockMaps.get(worldName);
-                if (otherData && otherBlocks) {
-                    chunks.forEach(({ x, z }) => {
-                        const key = getChunkKey2D(x, z);
-                        const chunkInfo = otherData.get(key);
-                        if (chunkInfo) {
-                            chunkInfo.blocks.forEach(b => {
-                                otherBlocks.delete(`${b.x},${b.y},${b.z}`);
-                            });
-                            otherData.delete(key);
-                        }
-                    });
-                }
+                storeChunkData(chunkX, chunkZ, blocks, worldName);
                 return;
             }
             
-            chunks.forEach(({ x, z }) => {
-                const key = getChunkKey2D(x, z);
-                
-                // Remove from data
-                const chunkInfo = loadedChunkData.get(key);
-                if (chunkInfo) {
-                    chunkInfo.blocks.forEach(b => {
-                        globalBlockMap.delete(`${b.x},${b.y},${b.z}`);
-                    });
-                    loadedChunkData.delete(key);
+            const key = getChunkKey2D(chunkX, chunkZ);
+            
+            // Store chunk data
+            loadedChunkData.set(key, { chunkX, chunkZ, blocks });
+            
+            // Add blocks to global map
+            blocks.forEach(b => {
+                globalBlockMap.set(`${b.x},${b.y},${b.z}`, b.type);
+            });
+            
+            // Build mesh for this chunk
+            buildAndAddChunkMesh(key, blocks);
+            
+            // Rebuild adjacent chunks to fix water seams at boundaries
+            const adjacentKeys = [
+                getChunkKey2D(chunkX - 1, chunkZ),
+                getChunkKey2D(chunkX + 1, chunkZ),
+                getChunkKey2D(chunkX, chunkZ - 1),
+                getChunkKey2D(chunkX, chunkZ + 1)
+            ];
+            
+            adjacentKeys.forEach(adjKey => {
+                const adjChunk = loadedChunkData.get(adjKey);
+                if (adjChunk) {
+                    // Rebuild adjacent chunk with updated block map
+                    buildAndAddChunkMesh(adjKey, adjChunk.blocks);
                 }
-                
-                // Find and remove 3D chunk meshes for this 2D chunk
-                const keysToRemove = [];
-                chunkMeshes.forEach((mesh, meshKey) => {
-                    const [cx, cy, cz] = meshKey.split(',').map(Number);
-                    if (cx === x && cz === z) {
-                        keysToRemove.push(meshKey);
-                    }
-                });
-                
-                keysToRemove.forEach(meshKey => {
-                    const mesh = chunkMeshes.get(meshKey);
-                    if (mesh) {
-                        chunkGroup.remove(mesh);
-                        mesh.traverse(obj => {
-                            if (obj.geometry) obj.geometry.dispose();
-                        });
-                        chunkMeshes.delete(meshKey);
-                    }
-                });
             });
             
             updateBlockCount();
+            
+            // Update loading progress
+            updateLoadingProgress(loadedChunkData.size);
+            
+            // Position camera on first chunk if not already positioned
+            if (!initialCameraPositioned && loadedChunkData.size >= 4) {
+                positionCameraToViewChunks();
+                initialCameraPositioned = true;
+            }
+            
+            // Hide loading screen when enough chunks are loaded
+            if (loadedChunkData.size >= MIN_CHUNKS_TO_SHOW && !isLoadingComplete) {
+                hideLoadingScreen();
+            }
+        }
+        
+        // Remove chunks (unload) from a specific world
+        // DISABLED: Keep chunks visible on the map even when player moves away
+        // The server still tracks what the player has seen, but we keep rendering them
+        function removeChunks(chunks, worldName = 'world') {
+            // Don't remove chunks - keep them visible on the map
+            // This makes the map build up over time as the player explores
+            console.log(`Ignoring unload request for ${chunks.length} chunks in ${worldName} (keeping visible)`);
+            return;
         }
         
         // Update block count display
         function updateBlockCount() {
             let totalBlocks = 0;
             loadedChunkData.forEach(chunk => totalBlocks += chunk.blocks.length);
-            document.getElementById('block-count').textContent = `${totalBlocks} (${loadedChunkData.size} chunks)`;
+            DOM.blockCount.textContent = `${totalBlocks} (${loadedChunkData.size} chunks)`;
         }
         
         // Position camera to view all loaded chunks
@@ -2080,10 +2591,12 @@
             if (minX === Infinity) return;
             
             const centerX = (minX + maxX) / 2;
-            const centerY = (minY + maxY) / 2;
             const centerZ = (minZ + maxZ) / 2;
             
-            camera.position.set(centerX, centerY + 50, centerZ - 80);
+            // Position camera above the highest block to ensure we start above ground
+            const cameraHeight = maxY + 50;
+            
+            camera.position.set(centerX, cameraHeight, centerZ - 80);
             
             const dx = centerX - camera.position.x;
             const dz = centerZ - camera.position.z;
@@ -2139,6 +2652,9 @@
             });
             chunkMeshes.clear();
             
+            // Clear dirty sections since we're rebuilding everything
+            dirtySections.clear();
+            
             // Rebuild each 2D chunk's 3D sections
             loadedChunkData.forEach((chunkInfo, key2D) => {
                 buildAndAddChunkMesh(key2D, chunkInfo.blocks);
@@ -2147,65 +2663,13 @@
             updateBlockCount();
         }
         
-        // Rebuild only affected 3D chunk section (for block changes)
-        function rebuildChunk(chunkKey) {
-            // Remove old chunk mesh if exists
-            if (chunkMeshes.has(chunkKey)) {
-                const oldMesh = chunkMeshes.get(chunkKey);
-                chunkGroup.remove(oldMesh);
-                oldMesh.traverse(obj => {
-                    if (obj.geometry) obj.geometry.dispose();
-                });
-                chunkMeshes.delete(chunkKey);
-            }
-            
-            // Get blocks in this 3D chunk section
-            const [cx, cy, cz] = chunkKey.split(',').map(Number);
-            const chunkBlockList = [];
-            
-            // Collect from all loaded 2D chunks that overlap this 3D section
-            loadedChunkData.forEach(chunkInfo => {
-                chunkInfo.blocks.forEach(b => {
-                    if (Math.floor(b.x / CHUNK_SIZE) === cx &&
-                        Math.floor(b.y / CHUNK_SIZE) === cy &&
-                        Math.floor(b.z / CHUNK_SIZE) === cz) {
-                        chunkBlockList.push(b);
-                    }
-                });
-            });
-            
-            if (chunkBlockList.length === 0) return;
-            
-            // Rebuild mesh
-            const mesh = buildChunkMesh(chunkBlockList, globalBlockMap);
-            mesh.position.set(0, 0, 0);
-            mesh.userData.chunkCenter = new THREE.Vector3(
-                (cx + 0.5) * CHUNK_SIZE,
-                (cy + 0.5) * CHUNK_SIZE,
-                (cz + 0.5) * CHUNK_SIZE
-            );
-            chunkMeshes.set(chunkKey, mesh);
-            chunkGroup.add(mesh);
-        }
-        
-        // Handle real-time block changes
+        // Handle real-time block changes with debounced section rebuilding
         function handleBlockChange(data) {
             const { type, x, y, z, blockType } = data;
             const key = `${x},${y},${z}`;
-            const chunkKey = getChunkKey(x, y, z);
             const chunkX = Math.floor(x / CHUNK_SIZE);
             const chunkZ = Math.floor(z / CHUNK_SIZE);
             const key2D = getChunkKey2D(chunkX, chunkZ);
-            
-            // Get adjacent chunk keys that might need updating
-            const adjacentChunks = new Set([chunkKey]);
-            [
-                [x+1, y, z], [x-1, y, z],
-                [x, y+1, z], [x, y-1, z],
-                [x, y, z+1], [x, y, z-1]
-            ].forEach(([ax, ay, az]) => {
-                adjacentChunks.add(getChunkKey(ax, ay, az));
-            });
             
             if (type === 'block_break') {
                 // Remove block from global map
@@ -2233,30 +2697,41 @@
                 }
             }
             
-            // Rebuild affected chunks
-            adjacentChunks.forEach(ck => rebuildChunk(ck));
-            
-            updateBlockCount();
+            // Mark affected section + boundary neighbors as dirty (debounced rebuild)
+            markSectionAndNeighborsDirty(x, y, z);
         }
 
-        // Frustum culling update (called each frame)
+        // Reusable sphere for frustum culling (avoid allocations)
+        const tempSphere = new THREE.Sphere();
+        let lastVisibleChunks = 0;
+        let lastTotalChunks = 0;
+        
+        // Frustum culling update (throttled - not every frame)
         function updateFrustumCulling() {
             projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
             frustum.setFromProjectionMatrix(projScreenMatrix);
             
             let visibleChunks = 0;
+            const totalChunks = chunkMeshes.size;
+            
             chunkMeshes.forEach((mesh) => {
                 if (mesh.userData.boundingSphere) {
-                    const sphere = mesh.userData.boundingSphere.clone();
-                    sphere.center.add(mesh.position);
-                    mesh.visible = frustum.intersectsSphere(sphere);
+                    // Reuse temp sphere instead of cloning
+                    tempSphere.copy(mesh.userData.boundingSphere);
+                    tempSphere.center.add(mesh.position);
+                    mesh.visible = frustum.intersectsSphere(tempSphere);
                 } else {
                     mesh.visible = true;
                 }
                 if (mesh.visible) visibleChunks++;
             });
             
-            document.getElementById('rendered-chunks').textContent = `${visibleChunks}/${chunkMeshes.size}`;
+            // Only update DOM if values changed
+            if (visibleChunks !== lastVisibleChunks || totalChunks !== lastTotalChunks) {
+                DOM.renderedChunks.textContent = `${visibleChunks}/${totalChunks}`;
+                lastVisibleChunks = visibleChunks;
+                lastTotalChunks = totalChunks;
+            }
         }
         
         // Handle click on player
@@ -2750,11 +3225,14 @@
                 addHighlight(player);
             }
             
-            document.getElementById('player-count').textContent = players.size;
+            DOM.playerCount.textContent = players.size;
         }
         
         // Animate all players (called every frame)
         function animatePlayers() {
+            // Early exit if no players
+            if (players.size === 0) return;
+            
             players.forEach((player, uuid) => {
                 // Interpolate position
                 player.currentX = lerp(player.currentX, player.targetX, LERP_FACTOR);
@@ -2855,6 +3333,11 @@
             console.log('Connected');
             document.getElementById('dot').className = 'dot connected';
             document.getElementById('status-text').textContent = 'Connected';
+            // Update loading screen status
+            const loadingStatus = document.getElementById('loading-status');
+            if (loadingStatus && !isLoadingComplete) {
+                loadingStatus.textContent = 'Connected! Waiting for world data...';
+            }
         };
         
         eventSource.onerror = () => {
@@ -2907,27 +3390,49 @@
         let frameCount = 0;
         let fps = 0;
         
-        // Animation loop
+        // Performance: frame counter for throttling
+        let animationFrame = 0;
+        let lastDOMUpdate = 0;
+        const DOM_UPDATE_INTERVAL = 500; // Update DOM stats every 500ms
+        const FRUSTUM_UPDATE_INTERVAL = 3; // Update frustum every 3 frames
+        
+        // Animation loop - optimized
         function animate() {
             requestAnimationFrame(animate);
+            animationFrame++;
             
-            // Update FPS
-            frameCount++;
             const currentTime = performance.now();
+            
+            // Update FPS counter
+            frameCount++;
             if (currentTime >= lastTime + 1000) {
                 fps = Math.round((frameCount * 1000) / (currentTime - lastTime));
-                document.getElementById('fps').textContent = fps;
                 frameCount = 0;
                 lastTime = currentTime;
             }
             
+            // Throttled DOM updates (expensive)
+            if (currentTime - lastDOMUpdate > DOM_UPDATE_INTERVAL) {
+                DOM.fps.textContent = fps;
+                lastDOMUpdate = currentTime;
+            }
+            
             animatePlayers(); // Smooth player interpolation and animation
             updateCamera();
-            updateFrustumCulling(); // Frustum cull chunks
+            
+            // Throttle frustum culling - not needed every frame in 2D mode
+            if (animationFrame % FRUSTUM_UPDATE_INTERVAL === 0) {
+                updateFrustumCulling();
+            }
+            
             renderer.render(scene, camera);
         }
         
         animate();
+        
+        // Update world display to show restored world from localStorage
+        DOM.currentWorld.textContent = currentWorld;
+        
         console.log('McGPS Viewer initialized');
     </script>
 </body>

@@ -17,6 +17,7 @@ McGPS is a complete solution for visualizing Minecraft player activity in real-t
 - 🌍 **Multi-world Support** - Overworld, Nether, and End dimensions
 - 📊 **Player Inventory** - View player health, food, XP, and inventory contents
 - 🔄 **Live Updates** - Server-Sent Events for instant position updates
+- 💾 **Persistent Caching** - World state persists across WebUI refreshes and server restarts
 
 ## Components
 

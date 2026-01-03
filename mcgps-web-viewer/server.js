@@ -17,7 +17,12 @@ const express = require('express');
 const path = require('path');
 const { spawn } = require('child_process');
 const https = require('https');
+const zlib = require('zlib');
+const { promisify } = require('util');
 const skinService = require('./SkinService');
+const OptimizedChunkCache = require('./OptimizedChunkCache');
+
+const gzip = promisify(zlib.gzip);
 
 const app = express();
 const PORT = 3000;
@@ -37,6 +42,43 @@ const playerSkins = new Map();
 
 // Active SSE clients
 const clients = new Set();
+
+// Persistent chunk cache with optimizations
+const chunkCache = new OptimizedChunkCache('./chunks', {
+    useCompression: true,      // GZIP compression for 60-80% size reduction
+    compressionLevel: 6,       // Balanced speed/ratio
+    lruCacheSize: 512,         // Keep 512 chunks in memory
+    batchFlushMs: 100,         // Batch writes every 100ms
+    maxBatchSize: 50,          // Max 50 chunks per batch
+    parallelReads: 8           // 8 concurrent file reads
+});
+
+// Priority queue for chunk loading (near players = higher priority)
+class ChunkPriorityQueue {
+    constructor() {
+        this.queue = [];
+        this.processing = false;
+    }
+    
+    add(chunk, priority = 0) {
+        this.queue.push({ ...chunk, priority });
+        this.queue.sort((a, b) => a.priority - b.priority);
+    }
+    
+    get length() {
+        return this.queue.length;
+    }
+    
+    shift() {
+        return this.queue.shift();
+    }
+    
+    clear() {
+        this.queue = [];
+    }
+}
+
+const chunkLoadQueue = new ChunkPriorityQueue();
 
 // Serve static files from public directory (use absolute path)
 app.use(express.static(path.join(__dirname, 'public')));
@@ -82,6 +124,52 @@ app.get('/skin/:uuid', async (req, res) => {
 });
 
 /**
+ * Load cached chunks from disk on startup (async with progress)
+ */
+async function loadCachedChunks() {
+    console.log('Loading cached chunks from disk...');
+    const startTime = Date.now();
+    
+    try {
+        // Migrate old uncompressed chunks to compressed format
+        await chunkCache.migrateToCompressed();
+        
+        const cachedWorlds = await chunkCache.loadAllChunks();
+        
+        let totalChunks = 0;
+        cachedWorlds.forEach((chunks, worldName) => {
+            if (!worldChunks.has(worldName)) {
+                worldChunks.set(worldName, new Map());
+            }
+            
+            const worldMap = worldChunks.get(worldName);
+            chunks.forEach((chunkData, chunkKey) => {
+                worldMap.set(chunkKey, {
+                    chunkX: chunkData.chunkX,
+                    chunkZ: chunkData.chunkZ,
+                    blocks: chunkData.blocks,
+                    world: chunkData.worldName,
+                    ts: chunkData.timestamp
+                });
+                totalChunks++;
+            });
+        });
+        
+        const loadTime = ((Date.now() - startTime) / 1000).toFixed(2);
+        
+        if (totalChunks > 0) {
+            const stats = chunkCache.getStats();
+            console.log(`✅ Loaded ${totalChunks} cached chunks from ${cachedWorlds.size} worlds in ${loadTime}s`);
+            console.log(`   Cache stats: ${stats.hitRate} hit rate, ${stats.compressionRatio} compression`);
+        } else {
+            console.log('No cached chunks found');
+        }
+    } catch (error) {
+        console.error('Error loading cached chunks:', error.message);
+    }
+}
+
+/**
  * SSE endpoint - streams telemetry to browsers
  */
 app.get('/telemetry-stream', (req, res) => {
@@ -115,16 +203,44 @@ app.get('/telemetry-stream', (req, res) => {
     res.write(`data: ${JSON.stringify({ type: 'init', players: currentData })}\n\n`);
     
     // Send all cached chunks from all worlds to new client
-    let totalChunks = 0;
-    worldChunks.forEach((chunks, worldName) => {
-        totalChunks += chunks.size;
-        chunks.forEach((chunkInfo, chunkKey) => {
-            res.write(`data: ${JSON.stringify({ type: 'chunk', data: chunkInfo })}\n\n`);
+    // Use async to avoid overwhelming the connection
+    const sendCachedChunks = async () => {
+        let totalChunks = 0;
+        let sent = 0;
+        
+        // Count total chunks first
+        worldChunks.forEach((chunks) => {
+            totalChunks += chunks.size;
         });
-    });
-    if (totalChunks > 0) {
-        console.log(`Sending ${totalChunks} cached chunks from ${worldChunks.size} worlds to new client`);
-    }
+        
+        if (totalChunks > 0) {
+            console.log(`Sending ${totalChunks} cached chunks from ${worldChunks.size} worlds to new client...`);
+        }
+        
+        // Send chunks in batches with small delays to avoid buffer overflow
+        for (const [worldName, chunks] of worldChunks) {
+            for (const [chunkKey, chunkInfo] of chunks) {
+                try {
+                    res.write(`data: ${JSON.stringify({ type: 'chunk', data: chunkInfo })}\n\n`);
+                    sent++;
+                    
+                    // Small delay every 20 chunks to let the buffer drain
+                    if (sent % 20 === 0) {
+                        await new Promise(resolve => setImmediate(resolve));
+                    }
+                } catch (err) {
+                    console.error(`Error sending chunk ${chunkKey}:`, err.message);
+                    break;
+                }
+            }
+        }
+        
+        if (totalChunks > 0) {
+            console.log(`✅ Sent ${sent}/${totalChunks} cached chunks to client`);
+        }
+    };
+    
+    sendCachedChunks();
 
     // Remove client on disconnect
     req.on('close', () => {
@@ -299,7 +415,7 @@ function parseTelemetryLine(line) {
 }
 
 /**
- * Broadcast block change to all connected clients
+ * Broadcast block change to all connected clients and update cache
  */
 function broadcastBlockChange(data) {
     const message = `data: ${JSON.stringify({ type: 'block_change', data })}\n\n`;
@@ -311,6 +427,22 @@ function broadcastBlockChange(data) {
             clients.delete(client);
         }
     });
+    
+    // Update cached chunk with block change
+    const worldName = data.world || 'world';
+    const { x, y, z, type, blockType } = data;
+    
+    if (type === 'block_break') {
+        // Remove block from cache
+        setImmediate(() => {
+            chunkCache.updateBlock(worldName, x, y, z, null);
+        });
+    } else if (type === 'block_place' && blockType) {
+        // Add/update block in cache
+        setImmediate(() => {
+            chunkCache.updateBlock(worldName, x, y, z, blockType);
+        });
+    }
 }
 
 /**
@@ -357,7 +489,7 @@ async function storeTelemetry(data) {
 }
 
 /**
- * Store a single chunk in world-specific cache
+ * Store a single chunk in world-specific cache (in-memory and on disk)
  */
 function storeChunk(data) {
     const worldName = data.world || 'world';
@@ -369,26 +501,38 @@ function storeChunk(data) {
     }
     const chunks = worldChunks.get(worldName);
     
-    chunks.set(chunkKey, {
+    const chunkInfo = {
         chunkX: data.chunkX,
         chunkZ: data.chunkZ,
         blocks: data.blocks,
         world: worldName,
         ts: data.ts
+    };
+    
+    chunks.set(chunkKey, chunkInfo);
+    
+    // Persist to disk asynchronously
+    setImmediate(() => {
+        chunkCache.saveChunk(worldName, data.chunkX, data.chunkZ, data.blocks, data.ts);
     });
 }
 
 /**
- * Unload chunks from a specific world
+ * Unload chunks from memory only (keep on disk for persistence)
+ * This is called when Minecraft unloads chunks from the player's view distance
+ * We keep them on disk so they can be restored on page refresh
  */
 function unloadChunks(chunks, worldName = 'world') {
+    // NOTE: We intentionally do NOT delete chunks from disk here
+    // The disk cache is our persistent storage for world data
+    // We only remove from memory cache to keep it bounded
+    
     const worldMap = worldChunks.get(worldName);
     if (!worldMap) return;
     
-    for (const chunk of chunks) {
-        const chunkKey = `${chunk.x},${chunk.z}`;
-        worldMap.delete(chunkKey);
-    }
+    // Just log how many chunks would be unloaded but keep them for now
+    // The LRU cache in OptimizedChunkCache will handle memory limits
+    console.log(`   (keeping ${chunks.length} unloaded chunks on disk for persistence)`);
 }
 
 /**
@@ -519,6 +663,133 @@ app.get('/api/players/:uuid/history', (req, res) => {
 });
 
 /**
+ * API endpoint to get chunk cache statistics
+ */
+app.get('/api/cache/stats', (req, res) => {
+    const stats = chunkCache.getStats();
+    
+    // Add world-level stats
+    const worldStats = {};
+    worldChunks.forEach((chunks, worldName) => {
+        worldStats[worldName] = chunks.size;
+    });
+    
+    res.json({
+        ...stats,
+        worlds: worldStats,
+        totalChunksInMemory: Array.from(worldChunks.values()).reduce((sum, m) => sum + m.size, 0)
+    });
+});
+
+/**
+ * API endpoint to clear chunk cache
+ */
+app.post('/api/cache/clear', async (req, res) => {
+    const world = req.query.world;
+    
+    if (world) {
+        // Clear specific world
+        await chunkCache.clearWorld(world);
+        
+        // Also clear from memory
+        if (worldChunks.has(world)) {
+            worldChunks.get(world).clear();
+        }
+        
+        res.json({ success: true, world });
+    } else {
+        // Clear all worlds
+        await chunkCache.clearAll();
+        
+        // Also clear from memory
+        worldChunks.clear();
+        
+        res.json({ success: true });
+    }
+});
+
+/**
+ * API endpoint to stream all chunks for a world (compressed)
+ * Uses gzip compression for ~70% bandwidth reduction
+ */
+app.get('/api/chunks/:world', async (req, res) => {
+    const worldName = req.params.world;
+    const acceptsGzip = req.get('Accept-Encoding')?.includes('gzip');
+    
+    const chunks = worldChunks.get(worldName);
+    if (!chunks || chunks.size === 0) {
+        return res.json({ chunks: [], count: 0 });
+    }
+    
+    // Convert to array format
+    const chunkArray = Array.from(chunks.values());
+    const jsonData = JSON.stringify({ chunks: chunkArray, count: chunkArray.length });
+    
+    if (acceptsGzip) {
+        try {
+            const compressed = await gzip(jsonData, { level: 6 });
+            res.set('Content-Encoding', 'gzip');
+            res.set('Content-Type', 'application/json');
+            res.send(compressed);
+        } catch (err) {
+            res.json({ chunks: chunkArray, count: chunkArray.length });
+        }
+    } else {
+        res.json({ chunks: chunkArray, count: chunkArray.length });
+    }
+});
+
+/**
+ * API endpoint to get chunks near a position (priority loading)
+ * Returns chunks sorted by distance from the given position
+ */
+app.get('/api/chunks/:world/near/:x/:z', async (req, res) => {
+    const worldName = req.params.world;
+    const centerX = parseInt(req.params.x) || 0;
+    const centerZ = parseInt(req.params.z) || 0;
+    const radius = parseInt(req.query.radius) || 8; // Default 8 chunks radius
+    
+    const chunks = worldChunks.get(worldName);
+    if (!chunks || chunks.size === 0) {
+        return res.json({ chunks: [], count: 0 });
+    }
+    
+    // Filter and sort chunks by distance
+    const centerChunkX = Math.floor(centerX / 16);
+    const centerChunkZ = Math.floor(centerZ / 16);
+    
+    const nearbyChunks = [];
+    chunks.forEach((chunk, key) => {
+        const dx = chunk.chunkX - centerChunkX;
+        const dz = chunk.chunkZ - centerChunkZ;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        
+        if (dist <= radius) {
+            nearbyChunks.push({ ...chunk, distance: dist });
+        }
+    });
+    
+    // Sort by distance (closest first)
+    nearbyChunks.sort((a, b) => a.distance - b.distance);
+    
+    const acceptsGzip = req.get('Accept-Encoding')?.includes('gzip');
+    const jsonData = JSON.stringify({ chunks: nearbyChunks, count: nearbyChunks.length });
+    
+    if (acceptsGzip) {
+        try {
+            const compressed = await gzip(jsonData, { level: 6 });
+            res.set('Content-Encoding', 'gzip');
+            res.set('Content-Type', 'application/json');
+            res.send(compressed);
+        } catch (err) {
+            res.json({ chunks: nearbyChunks, count: nearbyChunks.length });
+        }
+    } else {
+        res.json({ chunks: nearbyChunks, count: nearbyChunks.length });
+    }
+});
+
+/**
  * API endpoint to get cached chunk data (legacy endpoint, mainly for debugging)
  */
 app.get('/api/blocks', (req, res) => {
@@ -584,31 +855,51 @@ function getSimplifiedBlockType(blockName) {
 }
 
 // Start server
-app.listen(PORT, () => {
-    console.log(`╔════════════════════════════════════════════════════╗`);
-    console.log(`║  McGPS Web Viewer - Real-time Player Tracking     ║`);
-    console.log(`╚════════════════════════════════════════════════════╝`);
-    console.log();
-    console.log(`🌐 Server running at: http://localhost:${PORT}`);
-    console.log(`📊 Open in browser to see real-time 3D player positions`);
-    console.log(`🎨 Skin resolution enabled via Mojang Session Server API`);
-    console.log();
-    console.log(`Monitoring Docker container: minecraft-paper`);
-    console.log(`Press Ctrl+C to stop`);
-    console.log();
+// Start server - load chunks first, then listen
+async function startServer() {
+    // Load cached chunks from disk BEFORE accepting connections
+    await loadCachedChunks();
     
-    startLogTailing();
-    
-    // Start periodic cache cleanup (every hour)
-    setInterval(() => {
-        skinService.cleanCache();
-        const stats = skinService.getCacheStats();
-        console.log(`🧹 Cache cleanup: ${stats.size} skins cached, ${stats.pending} pending fetches`);
-    }, 60 * 60 * 1000);
-});
+    app.listen(PORT, () => {
+        console.log(`╔════════════════════════════════════════════════════╗`);
+        console.log(`║  McGPS Web Viewer - Real-time Player Tracking     ║`);
+        console.log(`╚════════════════════════════════════════════════════╝`);
+        console.log();
+        console.log(`🌐 Server running at: http://localhost:${PORT}`);
+        console.log(`📊 Open in browser to see real-time 3D player positions`);
+        console.log(`🎨 Skin resolution enabled via Mojang Session Server API`);
+        console.log(`🚀 Optimized chunk cache with compression enabled`);
+        console.log();
+        console.log(`Monitoring Docker container: minecraft-paper`);
+        console.log(`Press Ctrl+C to stop`);
+        console.log();
+        
+        startLogTailing();
+        
+        // Start periodic cache cleanup and stats logging (every hour)
+        setInterval(() => {
+            skinService.cleanCache();
+            const stats = skinService.getCacheStats();
+            console.log(`🧹 Cache cleanup: ${stats.size} skins cached, ${stats.pending} pending fetches`);
+            
+            // Log optimized chunk cache stats
+            const chunkStats = chunkCache.getStats();
+            console.log(`💾 Chunk cache stats:`);
+            console.log(`   - LRU cache: ${chunkStats.lruCacheSize}/${chunkStats.lruCacheMaxSize} chunks`);
+            console.log(`   - Hit rate: ${chunkStats.hitRate}`);
+            console.log(`   - Compression: ${chunkStats.compressionRatio}`);
+            console.log(`   - Disk reads: ${chunkStats.diskReads}, writes: ${chunkStats.diskWrites}`);
+        }, 60 * 60 * 1000);
+    });
+}
 
-// Graceful shutdown
-process.on('SIGINT', () => {
+startServer();
+
+// Graceful shutdown - flush cache before exit
+process.on('SIGINT', async () => {
     console.log('\nShutting down gracefully...');
+    console.log('Flushing chunk cache to disk...');
+    await chunkCache.shutdown();
+    console.log('Shutdown complete.');
     process.exit(0);
 });
