@@ -18,6 +18,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const https = require('https');
 const skinService = require('./SkinService');
+const ChunkCache = require('./ChunkCache');
 
 const app = express();
 const PORT = 3000;
@@ -37,6 +38,9 @@ const playerSkins = new Map();
 
 // Active SSE clients
 const clients = new Set();
+
+// Persistent chunk cache
+const chunkCache = new ChunkCache('./chunks');
 
 // Serve static files from public directory (use absolute path)
 app.use(express.static(path.join(__dirname, 'public')));
@@ -80,6 +84,39 @@ app.get('/skin/:uuid', async (req, res) => {
         res.status(500).send('Error fetching skin');
     }
 });
+
+/**
+ * Load cached chunks from disk on startup
+ */
+function loadCachedChunks() {
+    console.log('Loading cached chunks from disk...');
+    const cachedWorlds = chunkCache.loadAllChunks();
+    
+    let totalChunks = 0;
+    cachedWorlds.forEach((chunks, worldName) => {
+        if (!worldChunks.has(worldName)) {
+            worldChunks.set(worldName, new Map());
+        }
+        
+        const worldMap = worldChunks.get(worldName);
+        chunks.forEach((chunkData, chunkKey) => {
+            worldMap.set(chunkKey, {
+                chunkX: chunkData.chunkX,
+                chunkZ: chunkData.chunkZ,
+                blocks: chunkData.blocks,
+                world: chunkData.worldName,
+                ts: chunkData.timestamp
+            });
+            totalChunks++;
+        });
+    });
+    
+    if (totalChunks > 0) {
+        console.log(`✅ Loaded ${totalChunks} cached chunks from ${cachedWorlds.size} worlds`);
+    } else {
+        console.log('No cached chunks found');
+    }
+}
 
 /**
  * SSE endpoint - streams telemetry to browsers
@@ -299,7 +336,7 @@ function parseTelemetryLine(line) {
 }
 
 /**
- * Broadcast block change to all connected clients
+ * Broadcast block change to all connected clients and update cache
  */
 function broadcastBlockChange(data) {
     const message = `data: ${JSON.stringify({ type: 'block_change', data })}\n\n`;
@@ -311,6 +348,22 @@ function broadcastBlockChange(data) {
             clients.delete(client);
         }
     });
+    
+    // Update cached chunk with block change
+    const worldName = data.world || 'world';
+    const { x, y, z, type, blockType } = data;
+    
+    if (type === 'block_break') {
+        // Remove block from cache
+        setImmediate(() => {
+            chunkCache.updateBlock(worldName, x, y, z, null);
+        });
+    } else if (type === 'block_place' && blockType) {
+        // Add/update block in cache
+        setImmediate(() => {
+            chunkCache.updateBlock(worldName, x, y, z, blockType);
+        });
+    }
 }
 
 /**
@@ -357,7 +410,7 @@ async function storeTelemetry(data) {
 }
 
 /**
- * Store a single chunk in world-specific cache
+ * Store a single chunk in world-specific cache (in-memory and on disk)
  */
 function storeChunk(data) {
     const worldName = data.world || 'world';
@@ -369,17 +422,24 @@ function storeChunk(data) {
     }
     const chunks = worldChunks.get(worldName);
     
-    chunks.set(chunkKey, {
+    const chunkInfo = {
         chunkX: data.chunkX,
         chunkZ: data.chunkZ,
         blocks: data.blocks,
         world: worldName,
         ts: data.ts
+    };
+    
+    chunks.set(chunkKey, chunkInfo);
+    
+    // Persist to disk asynchronously
+    setImmediate(() => {
+        chunkCache.saveChunk(worldName, data.chunkX, data.chunkZ, data.blocks, data.ts);
     });
 }
 
 /**
- * Unload chunks from a specific world
+ * Unload chunks from a specific world (memory and disk)
  */
 function unloadChunks(chunks, worldName = 'world') {
     const worldMap = worldChunks.get(worldName);
@@ -388,6 +448,11 @@ function unloadChunks(chunks, worldName = 'world') {
     for (const chunk of chunks) {
         const chunkKey = `${chunk.x},${chunk.z}`;
         worldMap.delete(chunkKey);
+        
+        // Delete from disk asynchronously
+        setImmediate(() => {
+            chunkCache.deleteChunk(worldName, chunk.x, chunk.z);
+        });
     }
 }
 
@@ -519,6 +584,41 @@ app.get('/api/players/:uuid/history', (req, res) => {
 });
 
 /**
+ * API endpoint to get chunk cache statistics
+ */
+app.get('/api/cache/stats', (req, res) => {
+    const stats = chunkCache.getStats();
+    res.json(stats);
+});
+
+/**
+ * API endpoint to clear chunk cache
+ */
+app.post('/api/cache/clear', (req, res) => {
+    const world = req.query.world;
+    
+    if (world) {
+        // Clear specific world
+        const deleted = chunkCache.clearWorld(world);
+        
+        // Also clear from memory
+        if (worldChunks.has(world)) {
+            worldChunks.get(world).clear();
+        }
+        
+        res.json({ success: true, deleted, world });
+    } else {
+        // Clear all worlds
+        const deleted = chunkCache.clearAll();
+        
+        // Also clear from memory
+        worldChunks.clear();
+        
+        res.json({ success: true, deleted });
+    }
+});
+
+/**
  * API endpoint to get cached chunk data (legacy endpoint, mainly for debugging)
  */
 app.get('/api/blocks', (req, res) => {
@@ -593,6 +693,10 @@ app.listen(PORT, () => {
     console.log(`📊 Open in browser to see real-time 3D player positions`);
     console.log(`🎨 Skin resolution enabled via Mojang Session Server API`);
     console.log();
+    
+    // Load cached chunks from disk
+    loadCachedChunks();
+    
     console.log(`Monitoring Docker container: minecraft-paper`);
     console.log(`Press Ctrl+C to stop`);
     console.log();
@@ -604,6 +708,10 @@ app.listen(PORT, () => {
         skinService.cleanCache();
         const stats = skinService.getCacheStats();
         console.log(`🧹 Cache cleanup: ${stats.size} skins cached, ${stats.pending} pending fetches`);
+        
+        // Log chunk cache stats
+        const chunkStats = chunkCache.getStats();
+        console.log(`💾 Chunk cache: ${chunkStats.totalChunks} chunks across ${Object.keys(chunkStats.worlds).length} worlds`);
     }, 60 * 60 * 1000);
 });
 
