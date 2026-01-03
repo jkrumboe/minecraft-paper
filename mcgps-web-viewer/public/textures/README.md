@@ -50,16 +50,22 @@ The viewer will automatically load textures for all Minecraft blocks. Key textur
 
 ## Animation Support
 
-For animated blocks like water and lava, you can also extract the `.mcmeta` files:
+The viewer automatically animates water and lava by detecting animated texture files (textures with multiple frames stacked vertically).
+
+**Current Implementation:** Animations are detected automatically from PNG dimensions. The viewer checks if height > width to identify animated textures.
+
+**Optional mcmeta files:** For future enhancements, you can also extract `.mcmeta` files which contain animation configuration:
 
 ```bash
 unzip -j 1.20.4.jar "assets/minecraft/textures/block/*.mcmeta" -d /path/to/mcgps-web-viewer/public/textures/
 ```
 
-Supported animated textures:
-- `water_still.png` + `water_still.png.mcmeta`
-- `lava_still.png` + `lava_still.png.mcmeta`
-- Portal, fire, and other animated blocks
+Animated textures that work automatically:
+- `water_still.png` - Water animation (32 frames)
+- `lava_still.png` - Lava animation (20 frames)
+- Portal, fire, and other animated blocks (when added)
+
+**Note:** Currently, `.mcmeta` files are not parsed. Animation timing is configured in the code. Future versions may add full `.mcmeta` support.
 
 ## Fallback Behavior
 

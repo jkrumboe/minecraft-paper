@@ -3135,12 +3135,23 @@
                 this.frameDelta += delta;
                 
                 // Handle multiple frame advances for lag compensation
-                while (this.frameDelta >= this.frameTime) {
+                // Limit to max 10 frame skips to prevent excessive updates
+                let framesAdvanced = 0;
+                const maxFrameSkip = 10;
+                
+                while (this.frameDelta >= this.frameTime && framesAdvanced < maxFrameSkip) {
                     this.frameDelta -= this.frameTime;
                     this.frameIndex = (this.frameIndex + 1) % this.frames;
-                    
-                    // Update texture offset to show current frame
-                    // In Minecraft, animated textures are stacked vertically
+                    framesAdvanced++;
+                }
+                
+                // If we still have excess time (very long lag), just skip it
+                if (this.frameDelta >= this.frameTime) {
+                    this.frameDelta = 0;
+                }
+                
+                // Update texture offset once after calculating final frame
+                if (framesAdvanced > 0) {
                     material.map.offset.y = this.frameIndex * this.frameHeight;
                     material.map.needsUpdate = true;
                 }
