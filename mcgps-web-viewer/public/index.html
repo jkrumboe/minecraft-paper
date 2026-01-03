@@ -3113,6 +3113,12 @@
                 const width = texture.image.width;
                 const height = texture.image.height;
                 
+                // Validate dimensions
+                if (width <= 0 || height <= 0) {
+                    console.warn(`Invalid texture dimensions for ${this.textureName}: ${width}x${height}`);
+                    return;
+                }
+                
                 // Check if texture is animated (height > width means multiple frames stacked vertically)
                 if (height > width) {
                     this.frames = Math.floor(height / width);
@@ -3128,7 +3134,8 @@
                 
                 this.frameDelta += delta;
                 
-                if (this.frameDelta >= this.frameTime) {
+                // Handle multiple frame advances for lag compensation
+                while (this.frameDelta >= this.frameTime) {
                     this.frameDelta -= this.frameTime;
                     this.frameIndex = (this.frameIndex + 1) % this.frames;
                     
@@ -3160,6 +3167,9 @@
         // Function to update all animated textures
         let lastAnimationTime = performance.now();
         function updateTextureAnimations() {
+            // Early return if no animations to update
+            if (textureAnimations.size === 0) return;
+            
             const currentTime = performance.now();
             const delta = currentTime - lastAnimationTime;
             lastAnimationTime = currentTime;

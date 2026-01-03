@@ -10,7 +10,7 @@ The viewer now supports both procedural (generated) and real Minecraft textures 
 
 ### 1. Texture Loading System
 
-**Location:** `public/index.html` (lines ~1232-1262)
+**Location:** `public/index.html` in the texture loading section
 
 ```javascript
 function loadRealTexture(internalName)
@@ -23,7 +23,7 @@ function loadRealTexture(internalName)
 
 ### 2. Texture Mapping
 
-**Location:** `public/index.html` (lines ~845-1226)
+**Location:** `public/index.html` in the texture file mapping section
 
 ```javascript
 const TEXTURE_FILE_MAP = { ... }
@@ -39,7 +39,7 @@ const TEXTURE_FILE_MAP = { ... }
 
 ### 3. Material Creation
 
-**Location:** `public/index.html` (lines ~3019-3065)
+**Location:** `public/index.html` in the material creation section
 
 ```javascript
 Object.entries(blockTextures).forEach(([name, texture]) => { ... })
@@ -54,7 +54,7 @@ Features:
 
 ### 4. Animation System
 
-**Location:** `public/index.html` (lines ~3075-3160)
+**Location:** `public/index.html` in the texture animation system section
 
 #### TextureAnimation Class
 
@@ -92,7 +92,7 @@ const ANIMATED_TEXTURES = {
 
 #### Animation Update Loop
 
-**Location:** `public/index.html` (line ~4888)
+**Location:** In the main `animate()` function
 
 ```javascript
 function updateTextureAnimations() {
@@ -151,7 +151,7 @@ Each face can use a different texture, allowing for proper block rendering.
 
 ## Biome Color Tinting
 
-**Location:** `public/index.html` (lines ~3007-3056)
+**Location:** `public/index.html` in the material creation section
 
 ```javascript
 const BIOME_COLORS = {
