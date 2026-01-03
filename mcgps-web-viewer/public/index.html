@@ -472,12 +472,16 @@
         // Highlight material for selected player
         const highlightMaterial = new THREE.LineBasicMaterial({ color: 0x00ff88, linewidth: 2 });
 
-        // Lighting
-        const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+        // Lighting - Minecraft-style bright ambient with softer directional
+        const ambient = new THREE.AmbientLight(0xffffff, 0.85);
         scene.add(ambient);
-        const sun = new THREE.DirectionalLight(0xffffff, 0.6);
+        const sun = new THREE.DirectionalLight(0xfffaf0, 0.5);
         sun.position.set(100, 200, 100);
         scene.add(sun);
+        
+        // Add hemisphere light for more natural outdoor lighting
+        const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x8B7355, 0.3);
+        scene.add(hemiLight);
 
         // Camera controls
         let isDragging = false, lastX = 0, lastY = 0;
@@ -2950,8 +2954,12 @@
                                            name === 'shroomlight' || name.includes('froglight') ||
                                            name === 'redstone_lamp_on' || name === 'beacon';
                         
-                        // Note: Real Minecraft textures from 1.20+ are already colored (not grayscale)
-                        // So we DON'T apply biome tinting - only apply to procedural textures
+                        // Biome tinting - ONLY grass_top is grayscale and needs tint
+                        // grass_side is already a colored texture with dirt+grass composite
+                        const needsGrassTint = name === 'grass_top' || name === 'short_grass' || 
+                                               name === 'tall_grass' || name === 'fern';
+                        const needsFoliageTint = name.includes('leaves') || name === 'vine';
+                        const needsWaterTint = name === 'water';
                         
                         const materialProps = {
                             map: texture,
@@ -2960,6 +2968,17 @@
                             side: (name.includes('leaves') || name === 'glass' || name === 'cobweb') ? THREE.DoubleSide : THREE.FrontSide,
                             alphaTest: name.includes('leaves') || name === 'cobweb' ? 0.1 : 0
                         };
+                        
+                        // Apply biome color tinting to grayscale textures
+                        if (needsGrassTint) {
+                            materialProps.color = new THREE.Color(0x91BD59); // Brighter plains grass
+                        } else if (needsFoliageTint) {
+                            if (name.includes('birch')) materialProps.color = new THREE.Color(0x80A755);
+                            else if (name.includes('spruce')) materialProps.color = new THREE.Color(0x619961);
+                            else materialProps.color = new THREE.Color(0x77AB2F); // Brighter foliage
+                        } else if (needsWaterTint) {
+                            materialProps.color = new THREE.Color(0x3F76E4);
+                        }
                         
                         // Add emissive for light blocks
                         if (isEmissive) {
@@ -3518,10 +3537,10 @@
         const textureMaterials = {}; // Store materials for each texture
         
         // Biome color tints (Minecraft uses these to colorize grayscale textures)
+        // Using brighter Plains biome colors for better visual appearance
         const BIOME_COLORS = {
-            // Grass and foliage colors (forest biome approximation)
-            grass: new THREE.Color(0x7CBD6B),      // Green grass tint
-            foliage: new THREE.Color(0x59AE30),    // Green leaf tint  
+            grass: new THREE.Color(0x91BD59),      // Bright plains grass
+            foliage: new THREE.Color(0x77AB2F),    // Bright foliage
             water: new THREE.Color(0x3F76E4),      // Blue water tint
             birch_foliage: new THREE.Color(0x80A755), // Birch has fixed color
             spruce_foliage: new THREE.Color(0x619961), // Spruce has fixed color
@@ -3538,9 +3557,9 @@
                                name === 'shroomlight' || name === 'redstone_lamp_on';
             
             // Check if this texture needs biome color tinting
-            const needsGrassTint = name === 'grass_top' || name === 'grass_side' || 
-                                   name === 'grass_side_overlay' || name === 'short_grass' || 
-                                   name === 'tall_grass';
+            // ONLY grass_top is grayscale - grass_side is already a colored composite texture
+            const needsGrassTint = name === 'grass_top' || name === 'short_grass' || 
+                                   name === 'tall_grass' || name === 'fern';
             const needsFoliageTint = name.includes('leaves') || name === 'vine';
             const needsWaterTint = name === 'water';
             
@@ -4125,14 +4144,14 @@
         }
         
         // Pre-computed face vertex data for speed with UV coordinates
-        // UVs are arranged: [u0,v0, u1,v1, u2,v2, u3,v3] for 4 vertices per face
+        // UVs corrected for Three.js texture coordinate system (origin at bottom-left)
         const FACE_DATA = {
-            px: { verts: [0.5,-0.5,-0.5, 0.5,0.5,-0.5, 0.5,0.5,0.5, 0.5,-0.5,0.5], norm: [1,0,0], uvs: [1,1, 1,0, 0,0, 0,1], texType: 'side' },
-            nx: { verts: [-0.5,-0.5,0.5, -0.5,0.5,0.5, -0.5,0.5,-0.5, -0.5,-0.5,-0.5], norm: [-1,0,0], uvs: [1,1, 1,0, 0,0, 0,1], texType: 'side' },
-            py: { verts: [-0.5,0.5,-0.5, -0.5,0.5,0.5, 0.5,0.5,0.5, 0.5,0.5,-0.5], norm: [0,1,0], uvs: [0,0, 0,1, 1,1, 1,0], texType: 'top' },
-            ny: { verts: [-0.5,-0.5,-0.5, 0.5,-0.5,-0.5, 0.5,-0.5,0.5, -0.5,-0.5,0.5], norm: [0,-1,0], uvs: [0,1, 1,1, 1,0, 0,0], texType: 'bottom' },
-            pz: { verts: [-0.5,-0.5,0.5, 0.5,-0.5,0.5, 0.5,0.5,0.5, -0.5,0.5,0.5], norm: [0,0,1], uvs: [0,1, 1,1, 1,0, 0,0], texType: 'side' },
-            nz: { verts: [0.5,-0.5,-0.5, -0.5,-0.5,-0.5, -0.5,0.5,-0.5, 0.5,0.5,-0.5], norm: [0,0,-1], uvs: [0,1, 1,1, 1,0, 0,0], texType: 'side' }
+            px: { verts: [0.5,-0.5,-0.5, 0.5,0.5,-0.5, 0.5,0.5,0.5, 0.5,-0.5,0.5], norm: [1,0,0], uvs: [1,0, 1,1, 0,1, 0,0], texType: 'side' },
+            nx: { verts: [-0.5,-0.5,0.5, -0.5,0.5,0.5, -0.5,0.5,-0.5, -0.5,-0.5,-0.5], norm: [-1,0,0], uvs: [1,0, 1,1, 0,1, 0,0], texType: 'side' },
+            py: { verts: [-0.5,0.5,-0.5, -0.5,0.5,0.5, 0.5,0.5,0.5, 0.5,0.5,-0.5], norm: [0,1,0], uvs: [0,1, 0,0, 1,0, 1,1], texType: 'top' },
+            ny: { verts: [-0.5,-0.5,-0.5, 0.5,-0.5,-0.5, 0.5,-0.5,0.5, -0.5,-0.5,0.5], norm: [0,-1,0], uvs: [0,0, 1,0, 1,1, 0,1], texType: 'bottom' },
+            pz: { verts: [-0.5,-0.5,0.5, 0.5,-0.5,0.5, 0.5,0.5,0.5, -0.5,0.5,0.5], norm: [0,0,1], uvs: [0,0, 1,0, 1,1, 0,1], texType: 'side' },
+            nz: { verts: [0.5,-0.5,-0.5, -0.5,-0.5,-0.5, -0.5,0.5,-0.5, 0.5,0.5,-0.5], norm: [0,0,-1], uvs: [0,0, 1,0, 1,1, 0,1], texType: 'side' }
         };
         
         // Frustum for culling
