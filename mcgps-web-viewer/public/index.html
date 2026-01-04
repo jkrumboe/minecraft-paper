@@ -314,7 +314,7 @@
     <div id="player-modal">
         <div class="modal-content">
             <span class="modal-close" onclick="closePlayerModal()">&times;</span>
-            <h3 id="modal-title">👁️ Select Player to Follow</h3>
+            <h3 id="modal-title">Select Player to Follow</h3>
             <div class="player-list" id="player-list"></div>
         </div>
     </div>
@@ -370,10 +370,57 @@
     <script type="module">
         import * as THREE from 'three';
 
-        // Scene setup
+        // ========== BLUEMAP-STYLE RENDERING CONFIGURATION ==========
+        // Replicating BlueMap's beautiful rendering with proper lighting and colors
+        
+        // Rendering settings
+        const RENDER_DISTANCE = 12; // chunks
+        const FOG_START_FACTOR = 0.6; // fog starts at 60% of render distance (BlueMap style)
+        const FOG_END_FACTOR = 1.0;   // fog is fully opaque at render distance
+        
+        // BlueMap-style sky colors - vibrant but natural
+        // These match the colors seen in BlueMap's default daytime rendering
+        const SKY_COLOR_ZENITH = new THREE.Color(0x7ba4ff);   // Rich blue at top
+        const SKY_COLOR_HORIZON = new THREE.Color(0xb4d0ff);  // Pale blue at horizon
+        const SKY_COLOR_FOG = new THREE.Color(0xc8dcf8);      // Fog blends with horizon
+        
+        // Sunlight configuration (BlueMap uses ~45 degree sun angle)
+        const SUN_DIRECTION = new THREE.Vector3(0.6, 0.8, 0.4).normalize();
+        const SUNLIGHT_STRENGTH = 1.0;  // Full sun strength
+        const AMBIENT_LIGHT_STRENGTH = 0.35; // Slightly higher ambient for visibility
+        
+        // BlueMap uses a sky gradient shader - we'll approximate with a gradient background
+        function createSkyGradientTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            
+            // Create gradient from zenith (top) to horizon (bottom)
+            const gradient = ctx.createLinearGradient(0, 0, 0, 512);
+            gradient.addColorStop(0, '#7ba4ff');    // Zenith - rich blue
+            gradient.addColorStop(0.4, '#8ab4ff');  // Upper sky
+            gradient.addColorStop(0.7, '#a8c8ff');  // Mid sky
+            gradient.addColorStop(0.9, '#b8d4ff');  // Near horizon
+            gradient.addColorStop(1, '#c8dcf8');   // Horizon - pale blue/white
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 1, 512);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.magFilter = THREE.LinearFilter;
+            texture.minFilter = THREE.LinearFilter;
+            return texture;
+        }
+        
+        // Scene setup - BlueMap-style sky and fog
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87ceeb);
-        scene.fog = new THREE.Fog(0x87ceeb, 100, 300);
+        scene.background = SKY_COLOR_ZENITH; // Fallback solid color
+        
+        // Calculate fog distances based on render distance (16 blocks per chunk)
+        const fogNear = RENDER_DISTANCE * 16 * FOG_START_FACTOR;
+        const fogFar = RENDER_DISTANCE * 16 * FOG_END_FACTOR;
+        scene.fog = new THREE.Fog(SKY_COLOR_FOG, fogNear, fogFar);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         
@@ -424,14 +471,17 @@
         window.addEventListener('beforeunload', saveCameraPosition);
 
         const renderer = new THREE.WebGLRenderer({ 
-            antialias: false,  // Disable for performance
+            antialias: true,   // Enable for smoother edges (BlueMap uses this)
             powerPreference: 'high-performance',
             stencil: false,    // Not needed, saves memory
-            depth: true
+            depth: true,
+            alpha: false       // No transparency needed for background
         });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(1); // Force 1:1 pixel ratio for performance (was capped at 2)
-        renderer.sortObjects = false; // Disable sorting since we handle transparency manually
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Up to 2x for quality
+        renderer.sortObjects = true; // Enable proper transparency sorting
+        renderer.outputColorSpace = THREE.SRGBColorSpace; // Proper color space for textures
+        renderer.toneMapping = THREE.NoToneMapping; // Keep Minecraft's flat look
         document.getElementById('canvas-container').appendChild(renderer.domElement);
 
         // Cache frequently accessed DOM elements for performance
@@ -472,12 +522,35 @@
         // Highlight material for selected player
         const highlightMaterial = new THREE.LineBasicMaterial({ color: 0x00ff88, linewidth: 2 });
 
-        // Lighting
+        // ========== BLUEMAP-STYLE LIGHTING SYSTEM ==========
+        // BlueMap uses a combination of ambient, directional, and hemisphere lighting
+        // to create a natural, vibrant look that matches Minecraft's aesthetic
+        
+        // Ambient light - provides base illumination for all surfaces
+        // BlueMap uses moderate ambient to ensure nothing is pure black
         const ambient = new THREE.AmbientLight(0xffffff, 0.6);
         scene.add(ambient);
-        const sun = new THREE.DirectionalLight(0xffffff, 0.6);
-        sun.position.set(100, 200, 100);
+        
+        // Main directional sunlight - creates the primary shadows and highlights
+        // BlueMap's sun is warm-white and positioned at ~45 degrees
+        const sun = new THREE.DirectionalLight(0xfff8e7, 0.8); // Warm sunlight
+        sun.position.copy(SUN_DIRECTION).multiplyScalar(100);
         scene.add(sun);
+        
+        // Hemisphere light for natural sky/ground color blending
+        // This is key to BlueMap's look - sky blue from above, warm earth from below
+        const hemiLight = new THREE.HemisphereLight(
+            0x87ceeb,  // Sky color - light blue
+            0x8b7355,  // Ground color - earthy brown
+            0.35       // Moderate influence
+        );
+        scene.add(hemiLight);
+        
+        // Secondary fill light from opposite direction (subtle)
+        // BlueMap has fill lighting to prevent harsh shadows
+        const fillLight = new THREE.DirectionalLight(0xb4d7ff, 0.2); // Cool fill
+        fillLight.position.set(-SUN_DIRECTION.x, 0.3, -SUN_DIRECTION.z).normalize().multiplyScalar(50);
+        scene.add(fillLight);
 
         // Camera controls
         let isDragging = false, lastX = 0, lastY = 0;
@@ -528,15 +601,17 @@
                 pitch -= deltaY * 0.003;
                 pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
             } else if (isDragging && cameraMode === '2d') {
-                // Pan in 2D mode
+                // Pan in 2D mode - smaller movement for finer control
                 const deltaX = e.clientX - lastX;
                 const deltaY = e.clientY - lastY;
                 
                 lastX = e.clientX;
                 lastY = e.clientY;
                 
-                camera.position.x -= deltaX * 0.5;
-                camera.position.z -= deltaY * 0.5;
+                // Scale panning by current height for consistent feel
+                const panScale = camera.position.y * 0.002;
+                camera.position.x -= deltaX * panScale;
+                camera.position.z -= deltaY * panScale;
             }
         });
 
@@ -557,6 +632,18 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
+
+        // Scroll wheel for zoom in 2D mode
+        renderer.domElement.addEventListener('wheel', (e) => {
+            if (cameraMode === '2d') {
+                e.preventDefault();
+                // Scroll up = zoom in (lower Y), scroll down = zoom out (higher Y)
+                const zoomSpeed = camera.position.y * 0.1; // Scale with height
+                camera.position.y += e.deltaY > 0 ? zoomSpeed : -zoomSpeed;
+                // Clamp height between 20 and 500
+                camera.position.y = Math.max(20, Math.min(500, camera.position.y));
+            }
+        }, { passive: false });
 
         // Reusable objects for updateCamera (avoid allocations each frame)
         const tempForward = new THREE.Vector3();
@@ -599,7 +686,7 @@
                 // Show crosshair in first person
                 DOM.crosshair.style.display = 'block';
                 
-                updateCameraPosDisplay(`👁️ First Person: ${targetData?.name || 'Unknown'}`);
+                updateCameraPosDisplay(`First Person: ${targetData?.name || 'Unknown'}`);
                 return;
             } else {
                 // Make sure all players are visible when not in first person
@@ -644,16 +731,15 @@
             
             if (cameraMode === '2d') {
                 // 2D mode: only horizontal movement, looking straight down
-                const moveSpeed = 1.0;
+                // Speed scales with height for consistent feel
+                const moveSpeed = camera.position.y * 0.02;
                 
-                // In 2D mode, WASD moves in world XZ plane
+                // In 2D mode, WASD moves in world XZ plane (faster movement)
                 if (keys.w) camera.position.z -= moveSpeed;
                 if (keys.s) camera.position.z += moveSpeed;
                 if (keys.d) camera.position.x += moveSpeed;
                 if (keys.a) camera.position.x -= moveSpeed;
-                // Space/Shift zoom in/out
-                if (keys.space) camera.position.y += moveSpeed;
-                if (keys.shift) camera.position.y = Math.max(50, camera.position.y - moveSpeed);
+                // Zoom in/out is now handled by scroll wheel, not shift/space
                 
                 // Camera always looks straight down - use cached euler
                 tempEuler.set(-Math.PI / 2, 0, 0);
@@ -713,14 +799,14 @@
                 // First person mode - need to select a player
                 if (!followTarget) {
                     pendingCameraMode = 'firstperson';
-                    document.getElementById('modal-title').textContent = '👁️ Select Player for First Person View';
+                    document.getElementById('modal-title').textContent = 'Select Player for First Person View';
                     openPlayerModal();
                 }
             } else if (mode === 'thirdperson') {
                 // Third person mode - need to select a player
                 if (!followTarget) {
                     pendingCameraMode = 'thirdperson';
-                    document.getElementById('modal-title').textContent = '🎮 Select Player for Third Person View';
+                    document.getElementById('modal-title').textContent = 'Select Player for Third Person View';
                     openPlayerModal();
                 }
             }
@@ -742,7 +828,7 @@
                     const item = document.createElement('div');
                     item.className = 'player-item';
                     if (uuid === followTarget) item.classList.add('selected');
-                    item.innerHTML = `<span>👤</span><span>${data.name}</span>`;
+                    item.innerHTML = `<span>${data.name}</span>`;
                     item.onclick = () => selectFollowTarget(uuid);
                     list.appendChild(item);
                 });
@@ -1223,6 +1309,290 @@
             'powered_rail': 'powered_rail',
             'detector_rail': 'detector_rail',
             'activator_rail': 'activator_rail',
+            
+            // End portal and related
+            'end_portal_frame_side': 'end_portal_frame_side',
+            'end_portal_frame_top': 'end_portal_frame_top',
+            'end_portal_frame_eye': 'end_portal_frame_eye',
+            'end_rod': 'end_rod',
+            'dragon_egg': 'dragon_egg',
+            'end_stone_bricks': 'end_stone_bricks',
+            
+            // Crying obsidian & respawn anchor
+            'crying_obsidian': 'crying_obsidian',
+            'respawn_anchor_top': 'respawn_anchor_top',
+            'respawn_anchor_side0': 'respawn_anchor_side0',
+            'respawn_anchor_bottom': 'respawn_anchor_bottom',
+            
+            // Beacon & conduit
+            'beacon': 'beacon',
+            'conduit': 'conduit',
+            
+            // Command blocks
+            'command_block_front': 'command_block_front',
+            'command_block_side': 'command_block_side',
+            'command_block_back': 'command_block_back',
+            
+            // Structure block
+            'structure_block': 'structure_block',
+            
+            // Jigsaw
+            'jigsaw_top': 'jigsaw_top',
+            'jigsaw_side': 'jigsaw_side',
+            'jigsaw_bottom': 'jigsaw_bottom',
+            
+            // Note block & jukebox
+            'note_block': 'note_block',
+            'jukebox_top': 'jukebox_top',
+            'jukebox_side': 'jukebox_side',
+            
+            // Lectern
+            'lectern_top': 'lectern_top',
+            'lectern_front': 'lectern_front',
+            'lectern_sides': 'lectern_sides',
+            'lectern_base': 'lectern_base',
+            
+            // Enchanting table
+            'enchanting_table_top': 'enchanting_table_top',
+            'enchanting_table_side': 'enchanting_table_side',
+            'enchanting_table_bottom': 'enchanting_table_bottom',
+            
+            // Brewing stand
+            'brewing_stand': 'brewing_stand',
+            'brewing_stand_base': 'brewing_stand_base',
+            
+            // Cauldron
+            'cauldron_top': 'cauldron_top',
+            'cauldron_side': 'cauldron_side',
+            'cauldron_bottom': 'cauldron_bottom',
+            'cauldron_inner': 'cauldron_inner',
+            
+            // Anvil
+            'anvil': 'anvil',
+            'anvil_top': 'anvil_top',
+            
+            // Grindstone
+            'grindstone_pivot': 'grindstone_pivot',
+            'grindstone_round': 'grindstone_round',
+            'grindstone_side': 'grindstone_side',
+            
+            // Stonecutter
+            'stonecutter_bottom': 'stonecutter_bottom',
+            'stonecutter_side': 'stonecutter_side',
+            'stonecutter_top': 'stonecutter_top',
+            'stonecutter_saw': 'stonecutter_saw',
+            
+            // Loom
+            'loom_top': 'loom_top',
+            'loom_front': 'loom_front',
+            'loom_side': 'loom_side',
+            'loom_bottom': 'loom_bottom',
+            
+            // Cartography table
+            'cartography_table_top': 'cartography_table_top',
+            'cartography_table_side1': 'cartography_table_side1',
+            'cartography_table_side2': 'cartography_table_side2',
+            'cartography_table_side3': 'cartography_table_side3',
+            
+            // Smithing table
+            'smithing_table_top': 'smithing_table_top',
+            'smithing_table_front': 'smithing_table_front',
+            'smithing_table_side': 'smithing_table_side',
+            'smithing_table_bottom': 'smithing_table_bottom',
+            
+            // Fletching table
+            'fletching_table_top': 'fletching_table_top',
+            'fletching_table_front': 'fletching_table_front',
+            'fletching_table_side': 'fletching_table_side',
+            
+            // Barrel
+            'barrel_top': 'barrel_top',
+            'barrel_top_open': 'barrel_top_open',
+            'barrel_side': 'barrel_side',
+            'barrel_bottom': 'barrel_bottom',
+            
+            // Composter
+            'composter_top': 'composter_top',
+            'composter_side': 'composter_side',
+            'composter_bottom': 'composter_bottom',
+            
+            // Campfire
+            'campfire_log': 'campfire_log',
+            'campfire_fire': 'campfire_fire',
+            'soul_campfire_log_lit': 'soul_campfire_log_lit',
+            
+            // Beehive and bee nest
+            'beehive_front': 'beehive_front',
+            'beehive_front_honey': 'beehive_front_honey',
+            'beehive_side': 'beehive_side',
+            'beehive_end': 'beehive_end',
+            'bee_nest_front': 'bee_nest_front',
+            'bee_nest_front_honey': 'bee_nest_front_honey',
+            'bee_nest_side': 'bee_nest_side',
+            'bee_nest_top': 'bee_nest_top',
+            'bee_nest_bottom': 'bee_nest_bottom',
+            
+            // Redstone components
+            'redstone_torch': 'redstone_torch',
+            'redstone_torch_off': 'redstone_torch_off',
+            'redstone_block': 'redstone_block',
+            'redstone_dust_dot': 'redstone_dust_dot',
+            'redstone_dust_line0': 'redstone_dust_line0',
+            'repeater': 'repeater',
+            'repeater_on': 'repeater_on',
+            'comparator': 'comparator',
+            'comparator_on': 'comparator_on',
+            'daylight_detector_top': 'daylight_detector_top',
+            'daylight_detector_side': 'daylight_detector_side',
+            'observer_front': 'observer_front',
+            'observer_back': 'observer_back',
+            'observer_side': 'observer_side',
+            'observer_top': 'observer_top',
+            'dispenser_front': 'dispenser_front',
+            'dropper_front': 'dropper_front',
+            'hopper_inside': 'hopper_inside',
+            'hopper_outside': 'hopper_outside',
+            'hopper_top': 'hopper_top',
+            'piston_top': 'piston_top',
+            'piston_side': 'piston_side',
+            'piston_bottom': 'piston_bottom',
+            'piston_inner': 'piston_inner',
+            'piston_top_sticky': 'piston_top_sticky',
+            'lever': 'lever',
+            'tripwire_hook': 'tripwire_hook',
+            'tripwire': 'tripwire',
+            'target_top': 'target_top',
+            'target_side': 'target_side',
+            'lightning_rod': 'lightning_rod',
+            
+            // Shulker boxes
+            'shulker_box': 'shulker_box',
+            'white_shulker_box': 'white_shulker_box',
+            'orange_shulker_box': 'orange_shulker_box',
+            'magenta_shulker_box': 'magenta_shulker_box',
+            'light_blue_shulker_box': 'light_blue_shulker_box',
+            'yellow_shulker_box': 'yellow_shulker_box',
+            'lime_shulker_box': 'lime_shulker_box',
+            'pink_shulker_box': 'pink_shulker_box',
+            'gray_shulker_box': 'gray_shulker_box',
+            'light_gray_shulker_box': 'light_gray_shulker_box',
+            'cyan_shulker_box': 'cyan_shulker_box',
+            'purple_shulker_box': 'purple_shulker_box',
+            'blue_shulker_box': 'blue_shulker_box',
+            'brown_shulker_box': 'brown_shulker_box',
+            'green_shulker_box': 'green_shulker_box',
+            'red_shulker_box': 'red_shulker_box',
+            'black_shulker_box': 'black_shulker_box',
+            
+            // Glazed terracotta
+            'white_glazed_terracotta': 'white_glazed_terracotta',
+            'orange_glazed_terracotta': 'orange_glazed_terracotta',
+            'magenta_glazed_terracotta': 'magenta_glazed_terracotta',
+            'light_blue_glazed_terracotta': 'light_blue_glazed_terracotta',
+            'yellow_glazed_terracotta': 'yellow_glazed_terracotta',
+            'lime_glazed_terracotta': 'lime_glazed_terracotta',
+            'pink_glazed_terracotta': 'pink_glazed_terracotta',
+            'gray_glazed_terracotta': 'gray_glazed_terracotta',
+            'light_gray_glazed_terracotta': 'light_gray_glazed_terracotta',
+            'cyan_glazed_terracotta': 'cyan_glazed_terracotta',
+            'purple_glazed_terracotta': 'purple_glazed_terracotta',
+            'blue_glazed_terracotta': 'blue_glazed_terracotta',
+            'brown_glazed_terracotta': 'brown_glazed_terracotta',
+            'green_glazed_terracotta': 'green_glazed_terracotta',
+            'red_glazed_terracotta': 'red_glazed_terracotta',
+            'black_glazed_terracotta': 'black_glazed_terracotta',
+            
+            // Concrete powder
+            'white_concrete_powder': 'white_concrete_powder',
+            'orange_concrete_powder': 'orange_concrete_powder',
+            'magenta_concrete_powder': 'magenta_concrete_powder',
+            'light_blue_concrete_powder': 'light_blue_concrete_powder',
+            'yellow_concrete_powder': 'yellow_concrete_powder',
+            'lime_concrete_powder': 'lime_concrete_powder',
+            'pink_concrete_powder': 'pink_concrete_powder',
+            'gray_concrete_powder': 'gray_concrete_powder',
+            'light_gray_concrete_powder': 'light_gray_concrete_powder',
+            'cyan_concrete_powder': 'cyan_concrete_powder',
+            'purple_concrete_powder': 'purple_concrete_powder',
+            'blue_concrete_powder': 'blue_concrete_powder',
+            'brown_concrete_powder': 'brown_concrete_powder',
+            'green_concrete_powder': 'green_concrete_powder',
+            'red_concrete_powder': 'red_concrete_powder',
+            'black_concrete_powder': 'black_concrete_powder',
+            
+            // Candles
+            'candle': 'candle',
+            'candle_lit': 'candle_lit',
+            'white_candle': 'white_candle',
+            'white_candle_lit': 'white_candle_lit',
+            'orange_candle': 'orange_candle',
+            'orange_candle_lit': 'orange_candle_lit',
+            
+            // Amethyst
+            'small_amethyst_bud': 'small_amethyst_bud',
+            'medium_amethyst_bud': 'medium_amethyst_bud',
+            'large_amethyst_bud': 'large_amethyst_bud',
+            'amethyst_cluster': 'amethyst_cluster',
+            'budding_amethyst': 'budding_amethyst',
+            
+            // Sculk
+            'sculk_catalyst_top': 'sculk_catalyst_top',
+            'sculk_catalyst_side': 'sculk_catalyst_side',
+            'sculk_catalyst_bottom': 'sculk_catalyst_bottom',
+            'sculk_sensor_top': 'sculk_sensor_top',
+            'sculk_sensor_side': 'sculk_sensor_side',
+            'sculk_sensor_bottom': 'sculk_sensor_bottom',
+            'sculk_shrieker_top': 'sculk_shrieker_top',
+            'sculk_shrieker_side': 'sculk_shrieker_side',
+            'sculk_shrieker_bottom': 'sculk_shrieker_bottom',
+            'sculk_vein': 'sculk_vein',
+            
+            // Nether
+            'nether_wart_block': 'nether_wart_block',
+            'warped_wart_block': 'warped_wart_block',
+            'shroomlight': 'shroomlight',
+            'crimson_nylium': 'crimson_nylium',
+            'crimson_nylium_side': 'crimson_nylium_side',
+            'warped_nylium': 'warped_nylium',
+            'warped_nylium_side': 'warped_nylium_side',
+            'crimson_roots': 'crimson_roots',
+            'warped_roots': 'warped_roots',
+            'nether_sprouts': 'nether_sprouts',
+            'twisting_vines': 'twisting_vines',
+            'twisting_vines_plant': 'twisting_vines_plant',
+            'weeping_vines': 'weeping_vines',
+            'weeping_vines_plant': 'weeping_vines_plant',
+            
+            // Froglight
+            'ochre_froglight_side': 'ochre_froglight_side',
+            'ochre_froglight_top': 'ochre_froglight_top',
+            'pearlescent_froglight_side': 'pearlescent_froglight_side',
+            'pearlescent_froglight_top': 'pearlescent_froglight_top',
+            'verdant_froglight_side': 'verdant_froglight_side',
+            'verdant_froglight_top': 'verdant_froglight_top',
+            
+            // Misc
+            'bookshelf': 'bookshelf',
+            'chiseled_bookshelf_empty': 'chiseled_bookshelf_empty',
+            'chiseled_bookshelf_occupied': 'chiseled_bookshelf_occupied',
+            'cake_top': 'cake_top',
+            'cake_side': 'cake_side',
+            'cake_bottom': 'cake_bottom',
+            'cake_inner': 'cake_inner',
+            'item_frame': 'item_frame',
+            'glow_item_frame': 'glow_item_frame',
+            'glow_lichen': 'glow_lichen',
+            'hanging_roots': 'hanging_roots',
+            'spore_blossom': 'spore_blossom',
+            'spore_blossom_base': 'spore_blossom_base',
+            'big_dripleaf_top': 'big_dripleaf_top',
+            'big_dripleaf_side': 'big_dripleaf_side',
+            'big_dripleaf_stem': 'big_dripleaf_stem',
+            'big_dripleaf_tip': 'big_dripleaf_tip',
+            'small_dripleaf_top': 'small_dripleaf_top',
+            'small_dripleaf_side': 'small_dripleaf_side',
+            'pointed_dripstone_up_base': 'pointed_dripstone_up_base',
+            'pointed_dripstone_down_base': 'pointed_dripstone_down_base',
         };
         
         // Track which textures loaded successfully
@@ -2616,14 +2986,14 @@
         async function loadAllRealTextures() {
             console.log('🎨 Attempting to load real Minecraft textures...');
             
-            // Get all unique texture names used in procedural textures
-            const textureNames = Object.keys(blockTextures);
+            // Load ALL textures from TEXTURE_FILE_MAP, not just ones with procedural fallbacks
+            const allTextureNames = Object.keys(TEXTURE_FILE_MAP);
             
             // Try to load each texture from real files
-            const loadPromises = textureNames.map(async (name) => {
+            const loadPromises = allTextureNames.map(async (name) => {
                 const realTexture = await loadRealTexture(name);
                 if (realTexture) {
-                    blockTextures[name] = realTexture; // Override procedural with real
+                    blockTextures[name] = realTexture; // Add or override with real texture
                 }
             });
             
@@ -2633,7 +3003,7 @@
                 console.log(`✓ Loaded ${loadedRealTextures.size} real textures:`, Array.from(loadedRealTextures));
             }
             if (failedTextures.size > 0) {
-                console.log(`ℹ Using procedural fallback for ${failedTextures.size} textures`);
+                console.log(`ℹ Using procedural fallback for ${failedTextures.size} textures:`, Array.from(failedTextures));
             }
         }
         
@@ -2643,15 +3013,75 @@
             console.log('✓ Real texture loading complete');
             texturesLoaded = true;
             
-            // Update materials with the newly loaded real textures
+            // Update or create materials for all loaded real textures
             if (typeof textureMaterials !== 'undefined') {
-                Object.entries(blockTextures).forEach(([name, texture]) => {
-                    if (textureMaterials[name] && loadedRealTextures.has(name)) {
+                let updated = 0, created = 0;
+                
+                loadedRealTextures.forEach(name => {
+                    const texture = blockTextures[name];
+                    if (!texture) return;
+                    
+                    if (textureMaterials[name]) {
+                        // Update existing material
                         textureMaterials[name].map = texture;
                         textureMaterials[name].needsUpdate = true;
+                        updated++;
+                    } else {
+                        // Create new material for this texture
+                        const isTransparent = name === 'water' || name === 'glass' || name === 'ice' || 
+                                              name.includes('leaves') || name.includes('stained_glass') ||
+                                              name.includes('coral') || name === 'cobweb' || name === 'chain';
+                        const isLava = name === 'lava' || name === 'magma_block';
+                        const isEmissive = isLava || name === 'glowstone' || name === 'sea_lantern' || 
+                                           name === 'shroomlight' || name.includes('froglight') ||
+                                           name === 'redstone_lamp_on' || name === 'beacon';
+                        
+                        // Biome tinting - ONLY grass_top is grayscale and needs tint
+                        // grass_side is already a colored texture with dirt+grass composite
+                        const needsGrassTint = name === 'grass_top' || name === 'short_grass' || 
+                                               name === 'tall_grass' || name === 'fern';
+                        const needsFoliageTint = name.includes('leaves') || name === 'vine';
+                        const needsWaterTint = name === 'water';
+                        
+                        const materialProps = {
+                            map: texture,
+                            transparent: isTransparent,
+                            opacity: name === 'water' ? 0.7 : (name === 'glass' ? 0.4 : (name === 'ice' ? 0.85 : 1.0)),
+                            side: (name.includes('leaves') || name === 'glass' || name === 'cobweb') ? THREE.DoubleSide : THREE.FrontSide,
+                            alphaTest: name.includes('leaves') || name === 'cobweb' ? 0.1 : 0
+                        };
+                        
+                        // Apply biome color tinting to grayscale textures (BlueMap-style vibrant colors)
+                        if (needsGrassTint) {
+                            materialProps.color = new THREE.Color(0x8EB971); // BlueMap-style brighter grass
+                        } else if (needsFoliageTint) {
+                            if (name.includes('birch')) materialProps.color = new THREE.Color(0x80A755);
+                            else if (name.includes('spruce')) materialProps.color = new THREE.Color(0x619961);
+                            else if (name.includes('jungle')) materialProps.color = new THREE.Color(0x59C93C);
+                            else if (name.includes('cherry')) materialProps.color = new THREE.Color(0xE4A1C9);
+                            else materialProps.color = new THREE.Color(0x71A74D); // BlueMap-style richer foliage
+                        } else if (needsWaterTint) {
+                            materialProps.color = new THREE.Color(0x3F76E4);
+                        }
+                        
+                        // Add emissive for light blocks
+                        if (isEmissive) {
+                            materialProps.emissive = isLava ? new THREE.Color(0xFF4400) : new THREE.Color(0xFFE066);
+                            materialProps.emissiveIntensity = isLava ? 0.6 : 0.4;
+                        }
+                        
+                        // Use MeshLambertMaterial for proper lighting response (BlueMap style)
+                        textureMaterials[name] = new THREE.MeshLambertMaterial(materialProps);
+                        created++;
                     }
                 });
-                console.log(`✓ Updated ${loadedRealTextures.size} materials with real textures`);
+                
+                console.log(`✓ Updated ${updated} materials, created ${created} new materials`);
+                
+                // Re-initialize texture animations with real textures
+                if (typeof initializeTextureAnimations === 'function') {
+                    initializeTextureAnimations();
+                }
                 
                 // Force re-render of all chunks to show new textures
                 if (typeof rebuildAllChunks === 'function') {
@@ -2994,6 +3424,193 @@
             detector_rail: { all: 'detector_rail' },
             activator_rail: { all: 'activator_rail' },
             
+            // End portal frame
+            end_portal_frame: { top: 'end_portal_frame_top', bottom: 'end_stone', side: 'end_portal_frame_side' },
+            end_portal: { all: 'obsidian' }, // End portal itself (black for now)
+            end_gateway: { all: 'obsidian' },
+            end_rod: { all: 'end_rod' },
+            dragon_egg: { all: 'dragon_egg' },
+            
+            // Beacon and conduit
+            beacon: { all: 'beacon' },
+            conduit: { all: 'conduit' },
+            
+            // Command blocks
+            command_block: { front: 'command_block_front', side: 'command_block_side', back: 'command_block_back' },
+            chain_command_block: { front: 'command_block_front', side: 'command_block_side', back: 'command_block_back' },
+            repeating_command_block: { front: 'command_block_front', side: 'command_block_side', back: 'command_block_back' },
+            structure_block: { all: 'structure_block' },
+            jigsaw: { top: 'jigsaw_top', bottom: 'jigsaw_bottom', side: 'jigsaw_side' },
+            
+            // Note block and jukebox
+            note_block: { all: 'note_block' },
+            jukebox: { top: 'jukebox_top', bottom: 'jukebox_side', side: 'jukebox_side' },
+            
+            // Lectern
+            lectern: { top: 'lectern_top', bottom: 'lectern_base', side: 'lectern_sides', front: 'lectern_front' },
+            
+            // Enchanting table
+            enchanting_table: { top: 'enchanting_table_top', bottom: 'enchanting_table_bottom', side: 'enchanting_table_side' },
+            
+            // Brewing stand
+            brewing_stand: { all: 'brewing_stand' },
+            
+            // Cauldron
+            cauldron: { top: 'cauldron_top', bottom: 'cauldron_bottom', side: 'cauldron_side' },
+            water_cauldron: { top: 'cauldron_top', bottom: 'cauldron_bottom', side: 'cauldron_side' },
+            lava_cauldron: { top: 'cauldron_top', bottom: 'cauldron_bottom', side: 'cauldron_side' },
+            powder_snow_cauldron: { top: 'cauldron_top', bottom: 'cauldron_bottom', side: 'cauldron_side' },
+            
+            // Anvil
+            anvil: { top: 'anvil_top', bottom: 'anvil', side: 'anvil' },
+            chipped_anvil: { top: 'anvil_top', bottom: 'anvil', side: 'anvil' },
+            damaged_anvil: { top: 'anvil_top', bottom: 'anvil', side: 'anvil' },
+            
+            // Grindstone
+            grindstone: { all: 'grindstone_round' },
+            
+            // Stonecutter
+            stonecutter: { top: 'stonecutter_top', bottom: 'stonecutter_bottom', side: 'stonecutter_side' },
+            
+            // Loom
+            loom: { top: 'loom_top', bottom: 'loom_bottom', front: 'loom_front', side: 'loom_side' },
+            
+            // Cartography table
+            cartography_table: { top: 'cartography_table_top', bottom: 'planks', side: 'cartography_table_side1' },
+            
+            // Smithing table
+            smithing_table: { top: 'smithing_table_top', bottom: 'smithing_table_bottom', front: 'smithing_table_front', side: 'smithing_table_side' },
+            
+            // Fletching table
+            fletching_table: { top: 'fletching_table_top', bottom: 'planks', front: 'fletching_table_front', side: 'fletching_table_side' },
+            
+            // Barrel
+            barrel: { top: 'barrel_top', bottom: 'barrel_bottom', side: 'barrel_side' },
+            
+            // Composter
+            composter: { top: 'composter_top', bottom: 'composter_bottom', side: 'composter_side' },
+            
+            // Campfire
+            campfire: { all: 'campfire_log' },
+            soul_campfire: { all: 'soul_campfire_log_lit' },
+            
+            // Beehive and bee nest
+            beehive: { front: 'beehive_front', side: 'beehive_side', top: 'beehive_end', bottom: 'beehive_end' },
+            bee_nest: { front: 'bee_nest_front', side: 'bee_nest_side', top: 'bee_nest_top', bottom: 'bee_nest_bottom' },
+            
+            // Redstone components
+            redstone_wire: { all: 'redstone_dust_dot' },
+            redstone_torch: { all: 'redstone_torch' },
+            redstone_wall_torch: { all: 'redstone_torch' },
+            repeater: { all: 'repeater' },
+            comparator: { all: 'comparator' },
+            daylight_detector: { top: 'daylight_detector_top', bottom: 'daylight_detector_side', side: 'daylight_detector_side' },
+            observer: { front: 'observer_front', back: 'observer_back', top: 'observer_top', side: 'observer_side' },
+            dispenser: { front: 'dispenser_front', side: 'furnace_side', top: 'furnace_top', bottom: 'furnace_top' },
+            dropper: { front: 'dropper_front', side: 'furnace_side', top: 'furnace_top', bottom: 'furnace_top' },
+            hopper: { top: 'hopper_top', bottom: 'hopper_outside', side: 'hopper_outside' },
+            piston: { top: 'piston_top', bottom: 'piston_bottom', side: 'piston_side' },
+            sticky_piston: { top: 'piston_top_sticky', bottom: 'piston_bottom', side: 'piston_side' },
+            piston_head: { all: 'piston_top' },
+            lever: { all: 'lever' },
+            tripwire_hook: { all: 'tripwire_hook' },
+            tripwire: { all: 'tripwire' },
+            target: { top: 'target_top', bottom: 'target_top', side: 'target_side' },
+            lightning_rod: { all: 'lightning_rod' },
+            
+            // Sculk
+            sculk_catalyst: { top: 'sculk_catalyst_top', bottom: 'sculk_catalyst_bottom', side: 'sculk_catalyst_side' },
+            sculk_sensor: { top: 'sculk_sensor_top', bottom: 'sculk_sensor_bottom', side: 'sculk_sensor_side' },
+            sculk_shrieker: { top: 'sculk_shrieker_top', bottom: 'sculk_shrieker_bottom', side: 'sculk_shrieker_side' },
+            sculk_vein: { all: 'sculk_vein' },
+            
+            // Amethyst
+            small_amethyst_bud: { all: 'small_amethyst_bud' },
+            medium_amethyst_bud: { all: 'medium_amethyst_bud' },
+            large_amethyst_bud: { all: 'large_amethyst_bud' },
+            amethyst_cluster: { all: 'amethyst_cluster' },
+            budding_amethyst: { all: 'budding_amethyst' },
+            
+            // Nether vegetation
+            nether_wart: { all: 'netherrack' },
+            nether_wart_block: { all: 'nether_wart_block' },
+            warped_wart_block: { all: 'warped_wart_block' },
+            shroomlight: { all: 'shroomlight' },
+            crimson_nylium: { top: 'crimson_nylium', bottom: 'netherrack', side: 'crimson_nylium_side' },
+            warped_nylium: { top: 'warped_nylium', bottom: 'netherrack', side: 'warped_nylium_side' },
+            crimson_roots: { all: 'crimson_roots' },
+            warped_roots: { all: 'warped_roots' },
+            nether_sprouts: { all: 'nether_sprouts' },
+            twisting_vines: { all: 'twisting_vines' },
+            twisting_vines_plant: { all: 'twisting_vines_plant' },
+            weeping_vines: { all: 'weeping_vines' },
+            weeping_vines_plant: { all: 'weeping_vines_plant' },
+            
+            // Froglight
+            ochre_froglight: { top: 'ochre_froglight_top', bottom: 'ochre_froglight_top', side: 'ochre_froglight_side' },
+            pearlescent_froglight: { top: 'pearlescent_froglight_top', bottom: 'pearlescent_froglight_top', side: 'pearlescent_froglight_side' },
+            verdant_froglight: { top: 'verdant_froglight_top', bottom: 'verdant_froglight_top', side: 'verdant_froglight_side' },
+            
+            // Additional blocks
+            bookshelf: { all: 'bookshelf' },
+            chiseled_bookshelf: { all: 'chiseled_bookshelf_empty' },
+            cake: { top: 'cake_top', bottom: 'cake_bottom', side: 'cake_side' },
+            
+            // Dripleaf
+            big_dripleaf: { top: 'big_dripleaf_top', bottom: 'big_dripleaf_top', side: 'big_dripleaf_side' },
+            big_dripleaf_stem: { all: 'big_dripleaf_stem' },
+            small_dripleaf: { top: 'small_dripleaf_top', bottom: 'small_dripleaf_top', side: 'small_dripleaf_side' },
+            
+            // Pointed dripstone
+            pointed_dripstone: { all: 'pointed_dripstone_up_base' },
+            
+            // Glow lichen and hanging roots
+            glow_lichen: { all: 'glow_lichen' },
+            hanging_roots: { all: 'hanging_roots' },
+            spore_blossom: { all: 'spore_blossom' },
+            
+            // Flower duplicates with full names
+            sunflower: { all: 'dandelion' },
+            rose_bush: { all: 'poppy' },
+            peony: { all: 'poppy' },
+            lilac: { all: 'allium' },
+            
+            // Glazed terracotta
+            white_glazed_terracotta: { all: 'white_glazed_terracotta' },
+            orange_glazed_terracotta: { all: 'orange_glazed_terracotta' },
+            magenta_glazed_terracotta: { all: 'magenta_glazed_terracotta' },
+            light_blue_glazed_terracotta: { all: 'light_blue_glazed_terracotta' },
+            yellow_glazed_terracotta: { all: 'yellow_glazed_terracotta' },
+            lime_glazed_terracotta: { all: 'lime_glazed_terracotta' },
+            pink_glazed_terracotta: { all: 'pink_glazed_terracotta' },
+            gray_glazed_terracotta: { all: 'gray_glazed_terracotta' },
+            light_gray_glazed_terracotta: { all: 'light_gray_glazed_terracotta' },
+            cyan_glazed_terracotta: { all: 'cyan_glazed_terracotta' },
+            purple_glazed_terracotta: { all: 'purple_glazed_terracotta' },
+            blue_glazed_terracotta: { all: 'blue_glazed_terracotta' },
+            brown_glazed_terracotta: { all: 'brown_glazed_terracotta' },
+            green_glazed_terracotta: { all: 'green_glazed_terracotta' },
+            red_glazed_terracotta: { all: 'red_glazed_terracotta' },
+            black_glazed_terracotta: { all: 'black_glazed_terracotta' },
+            
+            // Concrete powder
+            white_concrete_powder: { all: 'white_concrete_powder' },
+            orange_concrete_powder: { all: 'orange_concrete_powder' },
+            magenta_concrete_powder: { all: 'magenta_concrete_powder' },
+            light_blue_concrete_powder: { all: 'light_blue_concrete_powder' },
+            yellow_concrete_powder: { all: 'yellow_concrete_powder' },
+            lime_concrete_powder: { all: 'lime_concrete_powder' },
+            pink_concrete_powder: { all: 'pink_concrete_powder' },
+            gray_concrete_powder: { all: 'gray_concrete_powder' },
+            light_gray_concrete_powder: { all: 'light_gray_concrete_powder' },
+            cyan_concrete_powder: { all: 'cyan_concrete_powder' },
+            purple_concrete_powder: { all: 'purple_concrete_powder' },
+            blue_concrete_powder: { all: 'blue_concrete_powder' },
+            brown_concrete_powder: { all: 'brown_concrete_powder' },
+            green_concrete_powder: { all: 'green_concrete_powder' },
+            red_concrete_powder: { all: 'red_concrete_powder' },
+            black_concrete_powder: { all: 'black_concrete_powder' },
+            
             // Default air (shouldn't render, but just in case)
             air: { all: 'glass' },
             cave_air: { all: 'glass' },
@@ -3004,15 +3621,18 @@
         const materials = {};
         const textureMaterials = {}; // Store materials for each texture
         
-        // Biome color tints (Minecraft uses these to colorize grayscale textures)
+        // Biome color tints - exact Minecraft biome colors
+        // BlueMap-style biome colors - more vibrant and saturated like actual Minecraft
+        // Plains biome: grass 0x91BD59, foliage 0x77AB2F (from Minecraft wiki)
         const BIOME_COLORS = {
-            // Grass and foliage colors (forest biome approximation)
-            grass: new THREE.Color(0x7CBD6B),      // Green grass tint
-            foliage: new THREE.Color(0x59AE30),    // Green leaf tint  
-            water: new THREE.Color(0x3F76E4),      // Blue water tint
+            grass: new THREE.Color(0x8EB971),      // Slightly brighter grass for BlueMap look
+            foliage: new THREE.Color(0x71A74D),    // Richer foliage green
+            water: new THREE.Color(0x3F76E4),      // Default water
             birch_foliage: new THREE.Color(0x80A755), // Birch has fixed color
             spruce_foliage: new THREE.Color(0x619961), // Spruce has fixed color
             swamp_foliage: new THREE.Color(0x6A7039), // Darker swamp color
+            jungle_foliage: new THREE.Color(0x59C93C), // Vibrant jungle green
+            cherry_foliage: new THREE.Color(0xE4A1C9), // Cherry blossom pink
         };
         
         // Create a material for each texture
@@ -3025,9 +3645,9 @@
                                name === 'shroomlight' || name === 'redstone_lamp_on';
             
             // Check if this texture needs biome color tinting
-            const needsGrassTint = name === 'grass_top' || name === 'grass_side' || 
-                                   name === 'grass_side_overlay' || name === 'short_grass' || 
-                                   name === 'tall_grass';
+            // ONLY grass_top is grayscale - grass_side is already a colored composite texture
+            const needsGrassTint = name === 'grass_top' || name === 'short_grass' || 
+                                   name === 'tall_grass' || name === 'fern';
             const needsFoliageTint = name.includes('leaves') || name === 'vine';
             const needsWaterTint = name === 'water';
             
@@ -3061,6 +3681,7 @@
                 materialProps.emissiveIntensity = isLava ? 0.6 : 0.4;
             }
             
+            // Use MeshLambertMaterial for proper lighting response (BlueMap style)
             textureMaterials[name] = new THREE.MeshLambertMaterial(materialProps);
         });
         
@@ -3071,6 +3692,147 @@
         
         console.log('✓ Created textured materials for blocks');
 
+        // ========== TEXTURE ANIMATION SYSTEM ==========
+        // Inspired by BlueMap's animation system for water, lava, and other animated blocks
+        
+        // Animation configuration for animated textures
+        const ANIMATED_TEXTURES = {
+            water: {
+                enabled: true,
+                frametime: 1,      // Time per frame in Minecraft ticks (20 ticks/second)
+                interpolate: true   // Smooth interpolation between frames
+            },
+            lava: {
+                enabled: true,
+                frametime: 2,       // Lava animates slower
+                interpolate: true
+            }
+        };
+        
+        // Texture animation state
+        class TextureAnimation {
+            constructor(textureName, config) {
+                this.textureName = textureName;
+                this.config = config;
+                this.frameTime = config.frametime * 50; // Convert to milliseconds (50ms per tick)
+                this.frameDelta = 0;
+                this.frameIndex = 0;
+                this.frames = 1;
+                this.frameHeight = 1;
+                this.isAnimated = false;
+            }
+            
+            // Initialize with texture dimensions
+            init(texture) {
+                if (!texture || !texture.image) return;
+                
+                const width = texture.image.width;
+                const height = texture.image.height;
+                
+                // Validate dimensions
+                if (width <= 0 || height <= 0) {
+                    console.warn(`Invalid texture dimensions for ${this.textureName}: ${width}x${height}`);
+                    return;
+                }
+                
+                // Check if texture is animated (height > width means multiple frames stacked vertically)
+                if (height > width) {
+                    this.frames = Math.floor(height / width);
+                    this.frameHeight = 1 / this.frames;
+                    this.isAnimated = true;
+                    console.log(`✓ Animated texture detected: ${this.textureName} (${this.frames} frames)`);
+                }
+            }
+            
+            // Update animation (called each frame with delta time in ms)
+            update(delta, material) {
+                if (!this.isAnimated || !material || !material.map) return;
+                
+                this.frameDelta += delta;
+                
+                // Handle multiple frame advances for lag compensation
+                // Limit to max 10 frame skips to prevent excessive updates
+                let framesAdvanced = 0;
+                const maxFrameSkip = 10;
+                
+                while (this.frameDelta >= this.frameTime && framesAdvanced < maxFrameSkip) {
+                    this.frameDelta -= this.frameTime;
+                    this.frameIndex = (this.frameIndex + 1) % this.frames;
+                    framesAdvanced++;
+                }
+                
+                // If we still have excess time (very long lag), just skip it
+                if (this.frameDelta >= this.frameTime) {
+                    this.frameDelta = 0;
+                }
+                
+                // Update texture offset once after calculating final frame
+                if (framesAdvanced > 0) {
+                    material.map.offset.y = this.frameIndex * this.frameHeight;
+                    material.map.needsUpdate = true;
+                }
+            }
+        }
+        
+        // Create animation controllers for animated textures
+        const textureAnimations = new Map();
+        
+        Object.entries(ANIMATED_TEXTURES).forEach(([textureName, config]) => {
+            if (config.enabled) {
+                const animation = new TextureAnimation(textureName, config);
+                const texture = blockTextures[textureName];
+                
+                if (texture) {
+                    animation.init(texture);
+                    if (animation.isAnimated) {
+                        textureAnimations.set(textureName, animation);
+                    }
+                }
+            }
+        });
+        
+        // Function to update all animated textures
+        let lastAnimationTime = performance.now();
+        function updateTextureAnimations() {
+            // Early return if no animations to update
+            if (textureAnimations.size === 0) return;
+            
+            const currentTime = performance.now();
+            const delta = currentTime - lastAnimationTime;
+            lastAnimationTime = currentTime;
+            
+            textureAnimations.forEach((animation, textureName) => {
+                const material = textureMaterials[textureName];
+                if (material) {
+                    animation.update(delta, material);
+                }
+            });
+        }
+        
+        // Re-check for animations when real textures are loaded
+        function initializeTextureAnimations() {
+            // Clear existing animations
+            textureAnimations.clear();
+            
+            // Re-initialize with loaded textures
+            Object.entries(ANIMATED_TEXTURES).forEach(([textureName, config]) => {
+                if (config.enabled) {
+                    const animation = new TextureAnimation(textureName, config);
+                    const texture = blockTextures[textureName];
+                    
+                    if (texture) {
+                        animation.init(texture);
+                        if (animation.isAnimated) {
+                            textureAnimations.set(textureName, animation);
+                            console.log(`✓ Initialized animation for: ${textureName}`);
+                        }
+                    }
+                }
+            });
+        }
+        
+        console.log('✓ Texture animation system initialized');
+
         // Chunk-based rendering system (like Minecraft)
         const CHUNK_SIZE = 16;
         const chunkGroup = new THREE.Group();
@@ -3080,9 +3842,40 @@
         const worldChunkData = new Map(); // Map<worldName, Map<chunkKey, { blocks, chunkX, chunkZ }>>
         const worldBlockMaps = new Map(); // Map<worldName, Map<blockKey, blockType>>
         const worldChunkMeshes = new Map(); // Map<worldName, Map<chunkKey, mesh>>
+        const worldLightMaps = new Map(); // Map<worldName, Map<blockKey, lightLevel>>
         
         // Current displayed world (restore from localStorage if available)
         let currentWorld = localStorage.getItem('mcgps_world') || 'world';
+        
+        // ========== TIME OF DAY SYSTEM (BlueMap-style) ==========
+        // Affects skylight brightness. 1.0 = full day, 0.1 = night
+        // Minecraft day/night cycle: 0-12000 ticks = day, 12000-24000 = night
+        let worldTimeOfDay = 1.0;
+        
+        // Convert Minecraft game time (0-24000 ticks) to brightness factor
+        function updateTimeOfDay(gameTime) {
+            // Normalize to 0-1 (full day cycle)
+            const normalizedTime = (gameTime % 24000) / 24000;
+            
+            // Calculate sun angle (0 = sunrise, 0.25 = noon, 0.5 = sunset, 0.75 = midnight)
+            // Day is roughly 0-0.5, night is 0.5-1.0
+            if (normalizedTime < 0.25) {
+                // Morning: 0.5 -> 1.0 (sunrise to noon)
+                worldTimeOfDay = 0.5 + normalizedTime * 2;
+            } else if (normalizedTime < 0.5) {
+                // Afternoon: 1.0 -> 0.5 (noon to sunset)
+                worldTimeOfDay = 1.0 - (normalizedTime - 0.25) * 2;
+            } else if (normalizedTime < 0.75) {
+                // Evening: 0.5 -> 0.1 (sunset to midnight)
+                worldTimeOfDay = 0.5 - (normalizedTime - 0.5) * 1.6;
+            } else {
+                // Late night: 0.1 -> 0.5 (midnight to sunrise)
+                worldTimeOfDay = 0.1 + (normalizedTime - 0.75) * 1.6;
+            }
+            
+            // Clamp to reasonable range
+            worldTimeOfDay = Math.max(0.1, Math.min(1.0, worldTimeOfDay));
+        }
         
         // Save current world to localStorage when it changes
         function saveCurrentWorld() {
@@ -3105,6 +3898,14 @@
             return worldBlockMaps.get(currentWorld);
         }
         
+        // Helper to get light map for current world
+        function getGlobalLightMap() {
+            if (!worldLightMaps.has(currentWorld)) {
+                worldLightMaps.set(currentWorld, new Map());
+            }
+            return worldLightMaps.get(currentWorld);
+        }
+        
         // Helper to get chunk meshes for current world
         function getChunkMeshes() {
             if (!worldChunkMeshes.has(currentWorld)) {
@@ -3115,6 +3916,7 @@
         
         // Backwards compatibility references (updated when world changes)
         let loadedChunkData = getLoadedChunkData();
+        let globalLightMap = getGlobalLightMap();
         let globalBlockMap = getGlobalBlockMap();
         let chunkMeshes = getChunkMeshes();
 
@@ -3266,12 +4068,17 @@
             
             const chunkData = worldChunkData.get(worldName);
             const blockMap = worldBlockMaps.get(worldName);
+            const lightMap = worldLightMaps.get(worldName) || new Map();
+            if (!worldLightMaps.has(worldName)) worldLightMaps.set(worldName, lightMap);
             
             const key = getChunkKey2D(chunkX, chunkZ);
             chunkData.set(key, { chunkX, chunkZ, blocks });
             
             blocks.forEach(b => {
-                blockMap.set(`${b.x},${b.y},${b.z}`, b.type);
+                const blockKey = `${b.x},${b.y},${b.z}`;
+                blockMap.set(blockKey, b.type);
+                // Store light level (default to 15 if not provided for backwards compatibility)
+                lightMap.set(blockKey, b.l !== undefined ? b.l : 15);
             });
         }
         
@@ -3282,9 +4089,11 @@
             // Store chunk data
             loadedChunkData.set(key, { chunkX, chunkZ, blocks });
             
-            // Add blocks to global map
+            // Add blocks to global map with light levels
             blocks.forEach(b => {
-                globalBlockMap.set(`${b.x},${b.y},${b.z}`, b.type);
+                const blockKey = `${b.x},${b.y},${b.z}`;
+                globalBlockMap.set(blockKey, b.type);
+                globalLightMap.set(blockKey, b.l !== undefined ? b.l : 15);
             });
             
             // Build mesh
@@ -3399,7 +4208,7 @@
             if (sectionBlocks.length === 0) return;
             
             // Build new mesh
-            const mesh = buildChunkMesh(sectionBlocks, globalBlockMap);
+            const mesh = buildChunkMesh(sectionBlocks, globalBlockMap, globalLightMap);
             mesh.position.set(0, 0, 0);
             mesh.userData.chunkCenter = new THREE.Vector3(
                 (cx + 0.5) * CHUNK_SIZE,
@@ -3471,15 +4280,110 @@
         }
         
         // Pre-computed face vertex data for speed with UV coordinates
-        // UVs are arranged: [u0,v0, u1,v1, u2,v2, u3,v3] for 4 vertices per face
+        // UVs corrected for Three.js texture coordinate system (origin at bottom-left)
+        // shade: BlueMap-style face shading - slightly brighter for scene lighting
+        // BlueMap/Minecraft face shading values (adjusted for Lambert material):
+        // Top (Y+): 1.0, Bottom (Y-): 0.6, North/South (Z): 0.85, East/West (X): 0.7
         const FACE_DATA = {
-            px: { verts: [0.5,-0.5,-0.5, 0.5,0.5,-0.5, 0.5,0.5,0.5, 0.5,-0.5,0.5], norm: [1,0,0], uvs: [1,1, 1,0, 0,0, 0,1], texType: 'side' },
-            nx: { verts: [-0.5,-0.5,0.5, -0.5,0.5,0.5, -0.5,0.5,-0.5, -0.5,-0.5,-0.5], norm: [-1,0,0], uvs: [1,1, 1,0, 0,0, 0,1], texType: 'side' },
-            py: { verts: [-0.5,0.5,-0.5, -0.5,0.5,0.5, 0.5,0.5,0.5, 0.5,0.5,-0.5], norm: [0,1,0], uvs: [0,0, 0,1, 1,1, 1,0], texType: 'top' },
-            ny: { verts: [-0.5,-0.5,-0.5, 0.5,-0.5,-0.5, 0.5,-0.5,0.5, -0.5,-0.5,0.5], norm: [0,-1,0], uvs: [0,1, 1,1, 1,0, 0,0], texType: 'bottom' },
-            pz: { verts: [-0.5,-0.5,0.5, 0.5,-0.5,0.5, 0.5,0.5,0.5, -0.5,0.5,0.5], norm: [0,0,1], uvs: [0,1, 1,1, 1,0, 0,0], texType: 'side' },
-            nz: { verts: [0.5,-0.5,-0.5, -0.5,-0.5,-0.5, -0.5,0.5,-0.5, 0.5,0.5,-0.5], norm: [0,0,-1], uvs: [0,1, 1,1, 1,0, 0,0], texType: 'side' }
+            px: { verts: [0.5,-0.5,-0.5, 0.5,0.5,-0.5, 0.5,0.5,0.5, 0.5,-0.5,0.5], norm: [1,0,0], uvs: [1,0, 1,1, 0,1, 0,0], texType: 'side', shade: 0.7 },
+            nx: { verts: [-0.5,-0.5,0.5, -0.5,0.5,0.5, -0.5,0.5,-0.5, -0.5,-0.5,-0.5], norm: [-1,0,0], uvs: [1,0, 1,1, 0,1, 0,0], texType: 'side', shade: 0.7 },
+            py: { verts: [-0.5,0.5,-0.5, -0.5,0.5,0.5, 0.5,0.5,0.5, 0.5,0.5,-0.5], norm: [0,1,0], uvs: [0,1, 0,0, 1,0, 1,1], texType: 'top', shade: 1.0 },
+            ny: { verts: [-0.5,-0.5,-0.5, 0.5,-0.5,-0.5, 0.5,-0.5,0.5, -0.5,-0.5,0.5], norm: [0,-1,0], uvs: [0,0, 1,0, 1,1, 0,1], texType: 'bottom', shade: 0.6 },
+            pz: { verts: [-0.5,-0.5,0.5, 0.5,-0.5,0.5, 0.5,0.5,0.5, -0.5,0.5,0.5], norm: [0,0,1], uvs: [0,0, 1,0, 1,1, 0,1], texType: 'side', shade: 0.85 },
+            nz: { verts: [0.5,-0.5,-0.5, -0.5,-0.5,-0.5, -0.5,0.5,-0.5, 0.5,0.5,-0.5], norm: [0,0,-1], uvs: [0,0, 1,0, 1,1, 0,1], texType: 'side', shade: 0.85 }
         };
+        
+        // ========== AMBIENT OCCLUSION SYSTEM ==========
+        // AO is calculated per-vertex based on adjacent blocks
+        // This creates realistic corner darkening like real Minecraft
+        
+        // AO corner offsets for each face direction
+        // Each face has 4 vertices, each vertex checks 3 adjacent positions for occlusion
+        const AO_OFFSETS = {
+            // +X face (pointing right)
+            px: [
+                // Vertex 0 (bottom-back): check +X-Y-Z, +X-Y, +X-Z
+                [[1,-1,-1], [1,-1,0], [1,0,-1]],
+                // Vertex 1 (top-back): check +X+Y-Z, +X+Y, +X-Z
+                [[1,1,-1], [1,1,0], [1,0,-1]],
+                // Vertex 2 (top-front): check +X+Y+Z, +X+Y, +X+Z
+                [[1,1,1], [1,1,0], [1,0,1]],
+                // Vertex 3 (bottom-front): check +X-Y+Z, +X-Y, +X+Z
+                [[1,-1,1], [1,-1,0], [1,0,1]]
+            ],
+            // -X face (pointing left)
+            nx: [
+                [[-1,-1,1], [-1,-1,0], [-1,0,1]],
+                [[-1,1,1], [-1,1,0], [-1,0,1]],
+                [[-1,1,-1], [-1,1,0], [-1,0,-1]],
+                [[-1,-1,-1], [-1,-1,0], [-1,0,-1]]
+            ],
+            // +Y face (pointing up)
+            py: [
+                [[-1,1,-1], [0,1,-1], [-1,1,0]],
+                [[-1,1,1], [0,1,1], [-1,1,0]],
+                [[1,1,1], [0,1,1], [1,1,0]],
+                [[1,1,-1], [0,1,-1], [1,1,0]]
+            ],
+            // -Y face (pointing down)
+            ny: [
+                [[-1,-1,-1], [0,-1,-1], [-1,-1,0]],
+                [[1,-1,-1], [0,-1,-1], [1,-1,0]],
+                [[1,-1,1], [0,-1,1], [1,-1,0]],
+                [[-1,-1,1], [0,-1,1], [-1,-1,0]]
+            ],
+            // +Z face (pointing forward)
+            pz: [
+                [[-1,-1,1], [-1,0,1], [0,-1,1]],
+                [[1,-1,1], [1,0,1], [0,-1,1]],
+                [[1,1,1], [1,0,1], [0,1,1]],
+                [[-1,1,1], [-1,0,1], [0,1,1]]
+            ],
+            // -Z face (pointing back)
+            nz: [
+                [[1,-1,-1], [1,0,-1], [0,-1,-1]],
+                [[-1,-1,-1], [-1,0,-1], [0,-1,-1]],
+                [[-1,1,-1], [-1,0,-1], [0,1,-1]],
+                [[1,1,-1], [1,0,-1], [0,1,-1]]
+            ]
+        };
+        
+        // Calculate AO value for a vertex (0-3, where 0 is darkest, 3 is brightest)
+        // If both sides are solid, AO = 0 (fully occluded)
+        // Otherwise AO = 3 - (side1 + side2 + corner)
+        function calculateVertexAO(blockMap, x, y, z, offsets) {
+            const side1Key = `${x + offsets[1][0]},${y + offsets[1][1]},${z + offsets[1][2]}`;
+            const side2Key = `${x + offsets[2][0]},${y + offsets[2][1]},${z + offsets[2][2]}`;
+            const cornerKey = `${x + offsets[0][0]},${y + offsets[0][1]},${z + offsets[0][2]}`;
+            
+            const side1Block = blockMap.get(side1Key);
+            const side2Block = blockMap.get(side2Key);
+            const cornerBlock = blockMap.get(cornerKey);
+            
+            // Check if blocks are solid (not transparent/liquid)
+            const transparentTypes = new Set(['water', 'lava', 'glass', 'air', 'leaves', 'oak_leaves', 
+                'spruce_leaves', 'birch_leaves', 'jungle_leaves', 'acacia_leaves', 'dark_oak_leaves']);
+            
+            const side1Solid = side1Block && !transparentTypes.has(side1Block) ? 1 : 0;
+            const side2Solid = side2Block && !transparentTypes.has(side2Block) ? 1 : 0;
+            const cornerSolid = cornerBlock && !transparentTypes.has(cornerBlock) ? 1 : 0;
+            
+            // If both sides are solid, corner is fully occluded
+            if (side1Solid && side2Solid) {
+                return 0;
+            }
+            
+            return 3 - (side1Solid + side2Solid + cornerSolid);
+        }
+        
+        // Convert AO value (0-3) to brightness multiplier
+        // BlueMap uses a softer AO curve for more natural shadows
+        function aoToLight(ao) {
+            // AO values: 0 = fully occluded (darkest), 3 = no occlusion (brightest)
+            // BlueMap-style softer curve - less harsh shadows
+            const aoTable = [0.6, 0.75, 0.9, 1.0];
+            return aoTable[ao];
+        }
         
         // Frustum for culling
         const frustum = new THREE.Frustum();
@@ -3517,8 +4421,84 @@
             return mapping.side || mapping.top || Object.values(mapping)[0];
         }
 
+        // ========== BIOME TINT SYSTEM ==========
+        // Different biomes have different grass/foliage/water colors
+        // This creates visual variety across the world
+        
+        // Default tints (plains biome)
+        const BIOME_TINTS = {
+            // Grass tints - applied to grass block top and grass_block_side overlay
+            grass: {
+                default: [0.55, 0.70, 0.35],     // Plains - medium green
+                forest: [0.47, 0.62, 0.30],      // Darker green
+                jungle: [0.35, 0.63, 0.18],      // Bright jungle green  
+                swamp: [0.41, 0.50, 0.28],       // Murky swamp green
+                taiga: [0.52, 0.61, 0.48],       // Cold taiga (bluish)
+                savanna: [0.71, 0.72, 0.27],     // Yellow-green
+                desert: [0.72, 0.75, 0.35],      // Pale yellow-green
+                badlands: [0.56, 0.50, 0.28],    // Orange-brown
+                snowy: [0.50, 0.68, 0.48],       // Pale bluish-green
+            },
+            // Foliage tints - applied to leaves
+            foliage: {
+                default: [0.38, 0.60, 0.22],     // Plains leaves
+                forest: [0.35, 0.55, 0.20],      // Forest leaves
+                jungle: [0.24, 0.55, 0.12],      // Jungle bright
+                swamp: [0.38, 0.48, 0.20],       // Swamp murky
+                taiga: [0.42, 0.55, 0.40],       // Cold bluish
+                savanna: [0.58, 0.58, 0.20],     // Yellow
+                birch: [0.50, 0.65, 0.32],       // Birch specific
+                spruce: [0.38, 0.50, 0.38],      // Spruce specific (bluish)
+            },
+            // Water tints
+            water: {
+                default: [0.24, 0.46, 0.90],     // Default blue
+                swamp: [0.38, 0.45, 0.32],       // Murky green
+                lukewarm_ocean: [0.27, 0.53, 0.82],
+                warm_ocean: [0.26, 0.58, 0.78],
+                cold_ocean: [0.24, 0.38, 0.78],
+            }
+        };
+        
+        // Determine which blocks need biome tinting
+        function needsBiomeTint(blockType) {
+            const grassBlocks = new Set(['grass_block', 'grass', 'tall_grass', 'short_grass', 'fern', 'large_fern']);
+            const foliageBlocks = new Set([
+                'oak_leaves', 'jungle_leaves', 'acacia_leaves', 'dark_oak_leaves', 
+                'mangrove_leaves', 'leaves', 'vine', 'lily_pad'
+            ]);
+            const waterBlocks = new Set(['water']);
+            
+            // Birch and spruce have fixed colors, azalea/cherry are unique
+            const fixedColorLeaves = new Set(['birch_leaves', 'spruce_leaves', 'azalea_leaves', 'cherry_leaves']);
+            
+            if (grassBlocks.has(blockType)) return 'grass';
+            if (foliageBlocks.has(blockType)) return 'foliage';
+            if (waterBlocks.has(blockType)) return 'water';
+            if (fixedColorLeaves.has(blockType)) return blockType; // Special handling
+            return null;
+        }
+        
+        // Get biome tint color for a block
+        // For now we use default biome, but this could be expanded to use actual biome data
+        function getBiomeTint(blockType, biome = 'default') {
+            const tintType = needsBiomeTint(blockType);
+            if (!tintType) return null;
+            
+            // Handle special fixed-color leaves
+            if (tintType === 'birch_leaves') return [0.50, 0.65, 0.32];
+            if (tintType === 'spruce_leaves') return [0.38, 0.50, 0.38];
+            if (tintType === 'azalea_leaves') return null; // No tint
+            if (tintType === 'cherry_leaves') return null; // No tint (pink is in texture)
+            
+            // Look up biome-specific tint, fall back to default
+            const tints = BIOME_TINTS[tintType];
+            if (!tints) return null;
+            return tints[biome] || tints.default;
+        }
+
         // Build optimized geometry for a chunk with textures
-        function buildChunkMesh(blocks, blockMap) {
+        function buildChunkMesh(blocks, blockMap, lightMap) {
             // Group blocks by texture (not just type) for batching
             // This allows different faces of same block type to use different textures
             const byTexture = {};
@@ -3534,11 +4514,19 @@
             // Liquid types that behave like water (flow together)
             const liquidTypes = new Set(['water', 'lava']);
             
-            blocks.forEach(({ x, y, z, type = 'stone' }) => {
+            // Use provided lightMap or create empty one
+            const lmap = lightMap || new Map();
+            
+            blocks.forEach(({ x, y, z, type = 'stone', l, biome }) => {
+                // Get light level for this block (from block data or lightMap, default 15)
+                const blockLight = l !== undefined ? l : (lmap.get(`${x},${y},${z}`) || 15);
                 const isTransparent = transparentTypes.has(type);
                 const isLiquid = liquidTypes.has(type);
                 const isWater = type === 'water';
                 const isLava = type === 'lava';
+                
+                // Get biome tint for this block type
+                const biomeTint = getBiomeTint(type, biome);
                 
                 // For each direction, check if we should render the face
                 const checkFace = (dx, dy, dz, faceKey) => {
@@ -3546,6 +4534,16 @@
                     const adjacentType = blockMap.get(adjacentKey);
                     
                     let shouldRender = false;
+                    
+                    // ========== FACE CULLING LOGIC (BlueMap-style) ==========
+                    // Determines which faces are visible and should be rendered
+                    
+                    // Check if adjacent block is a cube that would fully occlude this face
+                    const adjacentIsCube = adjacentType && !transparentTypes.has(adjacentType) && !liquidTypes.has(adjacentType);
+                    
+                    // Special case: glass and similar - cull if same exact type (like BlueMap's CullingIdentical)
+                    const isGlassLike = type.includes('glass') || type.includes('ice');
+                    const adjacentIsSame = adjacentType === type;
                     
                     if (isLiquid) {
                         // Liquids: only render faces adjacent to non-same-liquid blocks
@@ -3555,14 +4553,23 @@
                     } else if (!adjacentType) {
                         // No block there, render face
                         shouldRender = true;
+                    } else if (isGlassLike && adjacentIsSame) {
+                        // Glass-like blocks: cull faces between identical blocks (BlueMap style)
+                        shouldRender = false;
+                    } else if (adjacentIsCube) {
+                        // Solid opaque cube blocks fully occlude, don't render
+                        shouldRender = false;
                     } else if (adjacentType === 'water' || adjacentType === 'lava') {
                         // Solid block next to liquid - always render this face
                         shouldRender = true;
                     } else if (isTransparent) {
-                        // For transparent blocks, only cull if adjacent is same type
+                        // For other transparent blocks (leaves etc), render if different type
                         if (adjacentType !== type) {
                             shouldRender = true;
                         }
+                    } else {
+                        // Default: render face (adjacent is transparent but different)
+                        shouldRender = true;
                     }
                     
                     if (shouldRender) {
@@ -3572,7 +4579,11 @@
                         if (!byTexture[textureName]) {
                             byTexture[textureName] = { blocks: [], isLiquid: isLiquid, isTransparent: isTransparent, blockType: type };
                         }
-                        byTexture[textureName].blocks.push({ x, y, z, faceKey, type });
+                        // Include biome tint in face data for coloring
+                        byTexture[textureName].blocks.push({ 
+                            x, y, z, faceKey, type, light: blockLight, 
+                            tint: biomeTint // Pass biome tint for this face
+                        });
                     }
                 };
                 
@@ -3586,9 +4597,14 @@
             
             const group = new THREE.Group();
             
+            // ========== LIQUID HEIGHT CONSTANTS ==========
+            // Water and lava have slightly lowered top surfaces in Minecraft
+            const WATER_TOP_HEIGHT = 14/16;  // Water is 14/16 blocks tall (0.875)
+            const LAVA_TOP_HEIGHT = 14/16;   // Lava is also 14/16 blocks tall
+            
             // Build merged geometry per texture
             Object.entries(byTexture).forEach(([textureName, data]) => {
-                const { blocks: faceBlocks, isLiquid, isTransparent } = data;
+                const { blocks: faceBlocks, isLiquid, isTransparent, blockType } = data;
                 
                 // Get material for this texture
                 let mat = textureMaterials[textureName];
@@ -3603,24 +4619,103 @@
                 const positions = [];
                 const normals = [];
                 const uvs = [];
+                const colors = []; // Vertex colors for face shading + biome tinting
                 const indices = [];
                 let vertexOffset = 0;
                 
-                faceBlocks.forEach(({ x, y, z, faceKey }) => {
+                faceBlocks.forEach(({ x, y, z, faceKey, light, tint, skyLight, blockLight }) => {
                     const face = FACE_DATA[faceKey];
+                    const faceShade = face.shade || 1.0;
+                    
+                    // ========== DUAL LIGHTING SYSTEM (BlueMap-style) ==========
+                    // Minecraft has two light sources: skylight (sun) and blocklight (torches)
+                    // The final light is: max(skylight * timeOfDay, blocklight)
+                    
+                    // Time of day factor (1.0 = day, 0.1 = night)
+                    // This could be animated or controlled by actual game time
+                    const timeOfDayFactor = typeof worldTimeOfDay !== 'undefined' ? worldTimeOfDay : 1.0;
+                    
+                    // If we have separate skyLight and blockLight from server, use them
+                    // Otherwise fall back to the single 'light' value as skylight
+                    const sky = skyLight !== undefined ? skyLight : light;
+                    const block = blockLight !== undefined ? blockLight : 0;
+                    
+                    // Minecraft lighting formula (from wiki):
+                    // Each brightness value below 15 is 80% as bright as the one above it
+                    // So: brightness = 0.8^(15 - lightLevel)
+                    const skyBrightness = Math.pow(0.8, 15 - sky) * timeOfDayFactor;
+                    const blockBrightness = Math.pow(0.8, 15 - block);
+                    
+                    // Final light is max of both sources (like real Minecraft)
+                    const lightBrightness = Math.max(skyBrightness, blockBrightness);
+                    
+                    // Minecraft has a brightness slider in video settings
+                    // The slider interpolates between "moody" and "bright" lighting
+                    // At 0%: moody (uses raw gamma curve)
+                    // At 100%: full bright (everything equally lit)
+                    // Default is typically around 50-75% for better visibility
+                    // We use 75% for a brighter, more visible world
+                    const brightnessSlider = 0.75;
+                    
+                    // Linear interpolation: adjustedLight = moody + slider * (bright - moody)
+                    // Where moody = lightBrightness, bright = 1.0
+                    const adjustedLight = lightBrightness + brightnessSlider * (1.0 - lightBrightness);
+                    
+                    // Calculate ambient occlusion for each vertex
+                    // AO creates realistic darkening in corners and where blocks meet
+                    const aoOffsets = AO_OFFSETS[faceKey];
+                    const aoValues = [];
+                    for (let v = 0; v < 4; v++) {
+                        if (aoOffsets && aoOffsets[v] && !isLiquid && !isTransparent) {
+                            const ao = calculateVertexAO(blockMap, x, y, z, aoOffsets[v]);
+                            aoValues.push(aoToLight(ao));
+                        } else {
+                            // No AO for liquids and transparent blocks
+                            aoValues.push(1.0);
+                        }
+                    }
                     
                     // Add translated vertices with optional inset for liquids
+                    // For liquid top faces, lower the vertices to create realistic water surface
+                    const isTopFace = faceKey === 'py';
+                    const isWaterBlock = blockType === 'water';
+                    const isLavaBlock = blockType === 'lava';
+                    const liquidHeightOffset = isLiquid && isTopFace ? 
+                        (isWaterBlock ? (1 - WATER_TOP_HEIGHT) : (1 - LAVA_TOP_HEIGHT)) : 0;
+                    
                     for (let i = 0; i < 12; i += 3) {
+                        let vertY = face.verts[i + 1] + y - face.norm[1] * inset;
+                        
+                        // Lower the top surface of liquids
+                        if (liquidHeightOffset > 0 && face.verts[i + 1] > 0.5) {
+                            vertY -= liquidHeightOffset;
+                        }
+                        
                         positions.push(
                             face.verts[i] + x - face.norm[0] * inset,
-                            face.verts[i + 1] + y - face.norm[1] * inset,
+                            vertY,
                             face.verts[i + 2] + z - face.norm[2] * inset
                         );
                     }
                     
-                    // Add normals (4 vertices per face)
+                    // Add normals and colors (4 vertices per face)
+                    // Each vertex gets its own AO-adjusted color for smooth shading
                     for (let i = 0; i < 4; i++) {
                         normals.push(face.norm[0], face.norm[1], face.norm[2]);
+                        
+                        // Final brightness combines: face shade + light level + AO
+                        const minBrightness = 0.1;
+                        const aoMultiplier = aoValues[i];
+                        const shade = Math.max(minBrightness, faceShade * adjustedLight * aoMultiplier);
+                        
+                        // Apply biome tint if present (for grass, leaves, water)
+                        if (tint) {
+                            // Multiply texture color by tint color and shade
+                            colors.push(tint[0] * shade, tint[1] * shade, tint[2] * shade);
+                        } else {
+                            // No tint - use grayscale shade (preserves texture colors)
+                            colors.push(shade, shade, shade);
+                        }
                     }
                     
                     // Add UV coordinates (4 vertices per face, 2 components each)
@@ -3628,11 +4723,22 @@
                         uvs.push(face.uvs[i]);
                     }
                     
-                    // Add indices (2 triangles per face)
-                    indices.push(
-                        vertexOffset, vertexOffset + 1, vertexOffset + 2,
-                        vertexOffset, vertexOffset + 2, vertexOffset + 3
-                    );
+                    // Use anisotropic triangle ordering for smooth AO interpolation
+                    // Flip triangles based on AO values to avoid interpolation artifacts
+                    const ao0 = aoValues[0], ao1 = aoValues[1], ao2 = aoValues[2], ao3 = aoValues[3];
+                    if (ao0 + ao2 > ao1 + ao3) {
+                        // Standard winding
+                        indices.push(
+                            vertexOffset, vertexOffset + 1, vertexOffset + 2,
+                            vertexOffset, vertexOffset + 2, vertexOffset + 3
+                        );
+                    } else {
+                        // Flipped winding for better AO interpolation
+                        indices.push(
+                            vertexOffset, vertexOffset + 1, vertexOffset + 3,
+                            vertexOffset + 1, vertexOffset + 2, vertexOffset + 3
+                        );
+                    }
                     vertexOffset += 4;
                 });
                 
@@ -3642,10 +4748,15 @@
                 geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
                 geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
                 geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
                 geometry.setIndex(indices);
                 geometry.computeBoundingSphere();
                 
-                const mesh = new THREE.Mesh(geometry, mat);
+                // Clone material and enable vertex colors for face shading
+                const faceMat = mat.clone();
+                faceMat.vertexColors = true;
+                
+                const mesh = new THREE.Mesh(geometry, faceMat);
                 mesh.matrixAutoUpdate = false; // Performance: skip matrix calc
                 mesh.updateMatrix();
                 group.add(mesh);
@@ -3967,7 +5078,7 @@
                     });
                 }
                 
-                const mesh = buildChunkMesh(blockList, globalBlockMap);
+                const mesh = buildChunkMesh(blockList, globalBlockMap, globalLightMap);
                 const [cx, cy, cz] = key3D.split(',').map(Number);
                 mesh.position.set(0, 0, 0);
                 mesh.userData.chunkCenter = new THREE.Vector3(
@@ -4433,7 +5544,7 @@
             bodyGroup.add(headGroup);
             group.add(bodyGroup);
             
-            // Name tag (always faces camera)
+            // Name tag (always faces camera) - shown in 3D modes
             const canvas = document.createElement('canvas');
             canvas.width = 256;
             canvas.height = 64;
@@ -4454,6 +5565,58 @@
             nameTag.renderOrder = 999;
             group.add(nameTag);
             
+            // Map marker for 2D mode - shows face + name from above
+            // Create a larger marker with player face and name
+            const markerCanvas = document.createElement('canvas');
+            markerCanvas.width = 128;
+            markerCanvas.height = 160;
+            const markerCtx = markerCanvas.getContext('2d');
+            markerCtx.imageSmoothingEnabled = false;
+            
+            // Draw background circle
+            markerCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            markerCtx.beginPath();
+            markerCtx.arc(64, 64, 56, 0, Math.PI * 2);
+            markerCtx.fill();
+            
+            // Border
+            markerCtx.strokeStyle = '#ffffff';
+            markerCtx.lineWidth = 4;
+            markerCtx.beginPath();
+            markerCtx.arc(64, 64, 56, 0, Math.PI * 2);
+            markerCtx.stroke();
+            
+            // Draw direction arrow at top of circle
+            markerCtx.fillStyle = '#ff4444';
+            markerCtx.beginPath();
+            markerCtx.moveTo(64, 4);
+            markerCtx.lineTo(54, 20);
+            markerCtx.lineTo(74, 20);
+            markerCtx.closePath();
+            markerCtx.fill();
+            
+            // Name below circle
+            markerCtx.fillStyle = '#ffffff';
+            markerCtx.font = 'bold 16px Arial';
+            markerCtx.textAlign = 'center';
+            markerCtx.fillText(name || uuid.substring(0, 8), 64, 148);
+            
+            const markerTexture = new THREE.CanvasTexture(markerCanvas);
+            const mapMarker = new THREE.Mesh(
+                new THREE.PlaneGeometry(6, 7.5),
+                new THREE.MeshBasicMaterial({ 
+                    map: markerTexture, 
+                    transparent: true, 
+                    depthTest: false,
+                    side: THREE.DoubleSide
+                })
+            );
+            mapMarker.position.y = 5; // Float above ground
+            mapMarker.rotation.x = -Math.PI / 2; // Face upward (for top-down view)
+            mapMarker.renderOrder = 1000;
+            mapMarker.visible = false; // Hidden by default, shown in 2D mode
+            group.add(mapMarker);
+            
             scene.add(group);
             
             // Load skin texture via our server proxy (bypasses CORS)
@@ -4471,6 +5634,19 @@
                 leftArm.material = createSkinMaterials(texture, SKIN_UV.leftArm);
                 rightLeg.material = createSkinMaterials(texture, SKIN_UV.rightLeg);
                 leftLeg.material = createSkinMaterials(texture, SKIN_UV.leftLeg);
+                
+                // Draw player face on the map marker
+                // Face is at 8,8 with size 8x8 in the skin
+                const faceUV = SKIN_UV.head.front;
+                markerCtx.imageSmoothingEnabled = false;
+                // Draw face scaled up to fit the circle (48x48 centered at 64,64)
+                markerCtx.drawImage(
+                    texture.image, 
+                    faceUV.x, faceUV.y, faceUV.w, faceUV.h,
+                    28, 28, 72, 72
+                );
+                // Update the marker texture
+                mapMarker.material.map.needsUpdate = true;
             }, undefined, (err) => {
                 console.log('Could not load skin for', uuid, '- using default');
             });
@@ -4480,6 +5656,7 @@
                 bodyGroup, 
                 headGroup, 
                 nameTag,
+                mapMarker,
                 // Limb pivots for animation
                 rightArmPivot,
                 leftArmPivot,
@@ -4660,8 +5837,45 @@
                     player.headGroup.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.currentPitch - player.bodyTilt));
                 }
                 
-                // Name tag always faces camera
-                player.nameTag.lookAt(camera.position);
+                // Handle visibility based on camera mode
+                const is2DMode = cameraMode === '2d';
+                const isFreecam = cameraMode === 'freecam';
+                
+                // Calculate distance to camera for freecam marker visibility
+                const distToCamera = Math.sqrt(
+                    Math.pow(camera.position.x - player.currentX, 2) +
+                    Math.pow(camera.position.y - player.currentY, 2) +
+                    Math.pow(camera.position.z - player.currentZ, 2)
+                );
+                const showMarkerInFreecam = isFreecam && distToCamera > 50;
+                
+                // In 2D mode: show map marker, hide body
+                // In freecam far away: show map marker, hide body
+                // Otherwise: hide map marker, show body
+                if (player.mapMarker) {
+                    player.mapMarker.visible = is2DMode || showMarkerInFreecam;
+                    
+                    // Rotate map marker to show player direction (arrow points forward)
+                    // The marker faces up (-PI/2 on X), so we rotate on Z axis
+                    player.mapMarker.rotation.z = -player.currentYaw;
+                    
+                    // In freecam, make marker face camera instead of facing up
+                    if (showMarkerInFreecam) {
+                        player.mapMarker.rotation.x = 0;
+                        player.mapMarker.lookAt(camera.position);
+                    } else if (is2DMode) {
+                        player.mapMarker.rotation.x = -Math.PI / 2;
+                    }
+                }
+                
+                // Hide/show body and nametag based on mode
+                player.bodyGroup.visible = !is2DMode && !showMarkerInFreecam;
+                player.nameTag.visible = !is2DMode && !showMarkerInFreecam;
+                
+                // Name tag always faces camera (when visible)
+                if (player.nameTag.visible) {
+                    player.nameTag.lookAt(camera.position);
+                }
             });
         }
 
@@ -4758,6 +5972,11 @@
             
             animatePlayers(); // Smooth player interpolation and animation
             updateCamera();
+            
+            // Update animated textures (water, lava, etc.)
+            if (typeof updateTextureAnimations === 'function') {
+                updateTextureAnimations();
+            }
             
             // Throttle frustum culling - not needed every frame in 2D mode
             if (animationFrame % FRUSTUM_UPDATE_INTERVAL === 0) {

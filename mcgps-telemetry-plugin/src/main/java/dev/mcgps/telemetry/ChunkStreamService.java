@@ -223,15 +223,19 @@ public class ChunkStreamService {
                     // Skip vegetation
                     if (blockType.equals("vegetation")) continue;
                     
+                    // Get light level from exposed faces (adjacent transparent blocks)
+                    // For solid blocks, the light inside is 0, but we want the light hitting the visible faces
+                    int light = getExposedFaceLight(world, x, y, z);
+                    
                     // Include water blocks
                     if (blockType.equals("water")) {
-                        blocks.add(new BlockData(x, y, z, blockType));
+                        blocks.add(new BlockData(x, y, z, blockType, light));
                         continue;
                     }
                     
                     // Check if this solid block has any exposed face
                     if (hasExposedFace(world, x, y, z)) {
-                        blocks.add(new BlockData(x, y, z, blockType));
+                        blocks.add(new BlockData(x, y, z, blockType, light));
                     }
                 }
             }
@@ -255,7 +259,9 @@ public class ChunkStreamService {
                     if (blockType.equals("vegetation")) continue;
                     
                     if (blockType.equals("water") || hasExposedFace(world, x, y, z)) {
-                        blocks.add(new BlockData(x, y, z, blockType));
+                        // Get light from exposed faces for proper rendering
+                        int light = getExposedFaceLight(world, x, y, z);
+                        blocks.add(new BlockData(x, y, z, blockType, light));
                     }
                 }
             }
@@ -302,6 +308,26 @@ public class ChunkStreamService {
                isTransparent(world.getBlockAt(x, y - 1, z).getType()) ||
                isTransparent(world.getBlockAt(x, y, z + 1).getType()) ||
                isTransparent(world.getBlockAt(x, y, z - 1).getType());
+    }
+    
+    /**
+     * Get the maximum light level from adjacent transparent blocks
+     * This gives us the light level that would illuminate the exposed faces of a solid block
+     */
+    private int getExposedFaceLight(World world, int x, int y, int z) {
+        int maxLight = 0;
+        
+        // Check all 6 adjacent blocks
+        int[][] offsets = {{1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}};
+        for (int[] off : offsets) {
+            Block adj = world.getBlockAt(x + off[0], y + off[1], z + off[2]);
+            if (isTransparent(adj.getType())) {
+                int light = Math.max(adj.getLightFromSky(), adj.getLightFromBlocks());
+                if (light > maxLight) maxLight = light;
+            }
+        }
+        
+        return maxLight;
     }
     
     /**
@@ -369,7 +395,8 @@ public class ChunkStreamService {
             json.append("{\"x\":").append(block.x);
             json.append(",\"y\":").append(block.y);
             json.append(",\"z\":").append(block.z);
-            json.append(",\"type\":\"").append(block.type).append("\"}");
+            json.append(",\"type\":\"").append(block.type).append("\"");
+            json.append(",\"l\":").append(block.light).append("}");
         }
         
         json.append("]}");
@@ -486,8 +513,45 @@ public class ChunkStreamService {
         
         // End blocks
         if (name.equals("end_stone")) return "end_stone";
+        if (name.contains("end_stone_bricks")) return "end_stone_bricks";
         if (name.contains("end_stone")) return "end_stone";
         if (name.contains("purpur")) return "purpur_block";
+        if (name.contains("end_portal_frame")) return "end_portal_frame";
+        if (name.contains("end_portal")) return "end_portal";
+        if (name.contains("end_gateway")) return "end_gateway";
+        if (name.contains("end_rod")) return "end_rod";
+        if (name.contains("dragon_egg")) return "dragon_egg";
+        
+        // Beacon and conduit
+        if (name.equals("beacon")) return "beacon";
+        if (name.equals("conduit")) return "conduit";
+        
+        // Command blocks
+        if (name.contains("command_block")) return "command_block";
+        if (name.contains("structure_block")) return "structure_block";
+        if (name.contains("jigsaw")) return "jigsaw";
+        
+        // Functional blocks
+        if (name.equals("enchanting_table")) return "enchanting_table";
+        if (name.equals("lectern")) return "lectern";
+        if (name.equals("brewing_stand")) return "brewing_stand";
+        if (name.contains("cauldron")) return "cauldron";
+        if (name.contains("anvil")) return "anvil";
+        if (name.equals("grindstone")) return "grindstone";
+        if (name.equals("stonecutter")) return "stonecutter";
+        if (name.equals("loom")) return "loom";
+        if (name.equals("cartography_table")) return "cartography_table";
+        if (name.equals("smithing_table")) return "smithing_table";
+        if (name.equals("fletching_table")) return "fletching_table";
+        if (name.equals("barrel")) return "barrel";
+        if (name.equals("composter")) return "composter";
+        if (name.contains("campfire")) return name.contains("soul") ? "soul_campfire" : "campfire";
+        if (name.contains("beehive")) return "beehive";
+        if (name.contains("bee_nest")) return "bee_nest";
+        
+        // Respawn anchor
+        if (name.contains("respawn_anchor")) return "respawn_anchor";
+        if (name.contains("crying_obsidian")) return "crying_obsidian";
         
         // Obsidian
         if (name.contains("obsidian")) return "obsidian";
@@ -505,17 +569,165 @@ public class ChunkStreamService {
         // Moss
         if (name.contains("moss_block")) return "moss_block";
         
-        // Amethyst
-        if (name.contains("amethyst")) return "amethyst";
+        // Amethyst - be more specific
+        if (name.equals("budding_amethyst")) return "budding_amethyst";
+        if (name.equals("amethyst_block")) return "amethyst_block";
+        if (name.contains("amethyst_bud")) return name;
+        if (name.equals("amethyst_cluster")) return "amethyst_cluster";
+        if (name.contains("amethyst")) return "amethyst_block";
         
-        // Sculk
+        // Sculk - be more specific
+        if (name.equals("sculk")) return "sculk";
+        if (name.equals("sculk_catalyst")) return "sculk_catalyst";
+        if (name.equals("sculk_sensor")) return "sculk_sensor";
+        if (name.equals("sculk_shrieker")) return "sculk_shrieker";
+        if (name.equals("sculk_vein")) return "sculk_vein";
         if (name.contains("sculk")) return "sculk";
         
         // Dripstone
+        if (name.contains("pointed_dripstone")) return "pointed_dripstone";
         if (name.contains("dripstone")) return "dripstone_block";
         
         // Calcite
         if (name.equals("calcite")) return "calcite";
+        
+        // Nether vegetation
+        if (name.equals("crimson_nylium")) return "crimson_nylium";
+        if (name.equals("warped_nylium")) return "warped_nylium";
+        if (name.equals("nether_wart_block")) return "nether_wart_block";
+        if (name.equals("warped_wart_block")) return "warped_wart_block";
+        if (name.equals("shroomlight")) return "shroomlight";
+        if (name.contains("crimson_roots")) return "crimson_roots";
+        if (name.contains("warped_roots")) return "warped_roots";
+        if (name.contains("nether_sprouts")) return "nether_sprouts";
+        if (name.contains("twisting_vines")) return "twisting_vines";
+        if (name.contains("weeping_vines")) return "weeping_vines";
+        
+        // Froglight
+        if (name.contains("froglight")) return name;
+        
+        // Dripleaf
+        if (name.contains("big_dripleaf")) return "big_dripleaf";
+        if (name.contains("small_dripleaf")) return "small_dripleaf";
+        
+        // Glow lichen
+        if (name.equals("glow_lichen")) return "glow_lichen";
+        if (name.equals("hanging_roots")) return "hanging_roots";
+        if (name.equals("spore_blossom")) return "spore_blossom";
+        
+        // Coral
+        if (name.contains("coral_block")) return name;
+        if (name.contains("coral")) return name;
+        
+        // Shulker boxes
+        if (name.contains("shulker_box")) return name;
+        
+        // Glazed terracotta (already handled by terracotta above, but be explicit)
+        if (name.contains("glazed_terracotta")) return name;
+        
+        // Concrete powder
+        if (name.contains("concrete_powder")) return name;
+        if (name.contains("concrete")) return name;
+        
+        // Wool (already handled but be explicit)
+        if (name.contains("wool")) return name;
+        
+        // Candles
+        if (name.contains("candle")) return name;
+        
+        // Redstone components
+        if (name.equals("redstone_wire")) return "redstone_wire";
+        if (name.contains("redstone_torch")) return "redstone_torch";
+        if (name.equals("repeater")) return "repeater";
+        if (name.equals("comparator")) return "comparator";
+        if (name.equals("daylight_detector")) return "daylight_detector";
+        if (name.equals("observer")) return "observer";
+        if (name.equals("dispenser")) return "dispenser";
+        if (name.equals("dropper")) return "dropper";
+        if (name.equals("hopper")) return "hopper";
+        if (name.contains("piston")) return name.contains("sticky") ? "sticky_piston" : "piston";
+        if (name.equals("lever")) return "lever";
+        if (name.equals("tripwire_hook")) return "tripwire_hook";
+        if (name.equals("target")) return "target";
+        if (name.equals("lightning_rod")) return "lightning_rod";
+        
+        // Bookshelf
+        if (name.contains("chiseled_bookshelf")) return "chiseled_bookshelf";
+        if (name.equals("bookshelf")) return "bookshelf";
+        
+        // Miscellaneous
+        if (name.equals("sponge")) return "sponge";
+        if (name.equals("wet_sponge")) return "wet_sponge";
+        if (name.equals("slime_block")) return "slime_block";
+        if (name.equals("honey_block")) return "honey_block";
+        if (name.equals("honeycomb_block")) return "honeycomb_block";
+        if (name.equals("sea_lantern")) return "sea_lantern";
+        if (name.equals("redstone_lamp")) return "redstone_lamp";
+        if (name.equals("note_block")) return "note_block";
+        if (name.equals("jukebox")) return "jukebox";
+        if (name.equals("spawner")) return "spawner";
+        if (name.equals("cobweb")) return "cobweb";
+        
+        // Mushroom blocks
+        if (name.contains("mushroom_block")) return name;
+        if (name.equals("mushroom_stem")) return "mushroom_stem";
+        if (name.equals("red_mushroom")) return "red_mushroom";
+        if (name.equals("brown_mushroom")) return "brown_mushroom";
+        
+        // Rails
+        if (name.contains("rail")) return name;
+        
+        // Chains and lanterns
+        if (name.equals("chain")) return "chain";
+        if (name.equals("lantern")) return "lantern";
+        if (name.equals("soul_lantern")) return "soul_lantern";
+        if (name.equals("torch")) return "torch";
+        if (name.equals("soul_torch")) return "soul_torch";
+        
+        // Ladder and vines
+        if (name.equals("ladder")) return "ladder";
+        if (name.equals("vine")) return "vine";
+        
+        // Cactus
+        if (name.equals("cactus")) return "cactus";
+        if (name.equals("sugar_cane")) return "sugar_cane";
+        if (name.equals("bamboo")) return "bamboo";
+        if (name.equals("dead_bush")) return "dead_bush";
+        
+        // Pumpkin and melon
+        if (name.contains("pumpkin")) return name;
+        if (name.equals("melon")) return "melon";
+        
+        // Hay and bone blocks
+        if (name.equals("hay_block")) return "hay_block";
+        if (name.equals("bone_block")) return "bone_block";
+        
+        // Metal and gem blocks
+        if (name.equals("iron_block")) return "iron_block";
+        if (name.equals("gold_block")) return "gold_block";
+        if (name.equals("diamond_block")) return "diamond_block";
+        if (name.equals("emerald_block")) return "emerald_block";
+        if (name.equals("lapis_block")) return "lapis_block";
+        if (name.equals("redstone_block")) return "redstone_block";
+        if (name.equals("copper_block")) return "copper_block";
+        if (name.equals("netherite_block")) return "netherite_block";
+        if (name.equals("coal_block")) return "coal_block";
+        if (name.contains("raw_") && name.contains("_block")) return name;
+        
+        // TNT
+        if (name.equals("tnt")) return "tnt";
+        
+        // Crafting and furnaces
+        if (name.equals("crafting_table")) return "crafting_table";
+        if (name.equals("furnace")) return "furnace";
+        if (name.equals("blast_furnace")) return "blast_furnace";
+        if (name.equals("smoker")) return "smoker";
+        
+        // Bricks
+        if (name.equals("bricks")) return "bricks";
+        if (name.contains("stone_brick")) return name.contains("mossy") ? "mossy_stone_bricks" : 
+                                                 name.contains("cracked") ? "cracked_stone_bricks" :
+                                                 name.contains("chiseled") ? "chiseled_stone_bricks" : "stone_bricks";
         
         // Default to stone for other solid blocks
         return "stone";
@@ -539,12 +751,14 @@ public class ChunkStreamService {
     private static class BlockData {
         final int x, y, z;
         final String type;
+        final int light; // Combined light level (0-15)
         
-        BlockData(int x, int y, int z, String type) {
+        BlockData(int x, int y, int z, String type, int light) {
             this.x = x;
             this.y = y;
             this.z = z;
             this.type = type;
+            this.light = light;
         }
     }
     

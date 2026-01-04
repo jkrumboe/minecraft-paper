@@ -9,7 +9,7 @@ services:
     environment:
       EULA: "TRUE"
       TYPE: "PAPER"
-      VERSION: "1.20.4"
+      VERSION: "1.18.2"
       MEMORY: "4G"
       ENABLE_RCON: "false"
       ONLINE_MODE: "false"

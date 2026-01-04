@@ -1,7 +1,7 @@
 # Mojang Official Skin Resolution Implementation
 
 ## Overview
-Production-ready skin resolution pipeline using Mojang's official Session Server API for an online-mode Minecraft Paper 1.20.4 server.
+Production-ready skin resolution pipeline using Mojang's official Session Server API for an online-mode Minecraft Paper 1.21.4 server.
 
 ## Architecture
 
