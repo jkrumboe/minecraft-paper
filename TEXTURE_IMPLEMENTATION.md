@@ -50,10 +50,10 @@ npm start
 
 For authentic Minecraft look with animations:
 
-1. **Extract textures from Minecraft 1.20.4**:
+1. **Extract textures from Minecraft 1.21.4**:
    ```bash
-   cd ~/.minecraft/versions/1.20.4/
-   unzip -j 1.20.4.jar "assets/minecraft/textures/block/*" -d /path/to/mcgps-web-viewer/public/textures/
+   cd ~/.minecraft/versions/1.21.4/
+   unzip -j 1.21.4.jar "assets/minecraft/textures/block/*" -d /path/to/mcgps-web-viewer/public/textures/
    ```
 
 2. **Start the viewer**:

@@ -2,7 +2,7 @@
 
 Real-time 3D web viewer for tracking player positions on a Minecraft Paper server.
 
-![Minecraft Player Tracking](https://img.shields.io/badge/Minecraft-1.20.4-green) ![Paper](https://img.shields.io/badge/Server-Paper-blue) ![Docker](https://img.shields.io/badge/Docker-Supported-blue)
+![Minecraft Player Tracking](https://img.shields.io/badge/Minecraft-1.21.4-green) ![Paper](https://img.shields.io/badge/Server-Paper-blue) ![Docker](https://img.shields.io/badge/Docker-Supported-blue)
 
 ## What is this?
 
@@ -62,7 +62,7 @@ The web viewer displays:
 
 - Docker & Docker Compose
 - Node.js 14+
-- Minecraft Paper 1.20.4 server (included in docker-compose)
+- Minecraft Paper 1.21.4 server (included in docker-compose)
 
 ## License
 

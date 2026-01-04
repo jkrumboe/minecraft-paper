@@ -223,15 +223,19 @@ public class ChunkStreamService {
                     // Skip vegetation
                     if (blockType.equals("vegetation")) continue;
                     
+                    // Get light level from exposed faces (adjacent transparent blocks)
+                    // For solid blocks, the light inside is 0, but we want the light hitting the visible faces
+                    int light = getExposedFaceLight(world, x, y, z);
+                    
                     // Include water blocks
                     if (blockType.equals("water")) {
-                        blocks.add(new BlockData(x, y, z, blockType));
+                        blocks.add(new BlockData(x, y, z, blockType, light));
                         continue;
                     }
                     
                     // Check if this solid block has any exposed face
                     if (hasExposedFace(world, x, y, z)) {
-                        blocks.add(new BlockData(x, y, z, blockType));
+                        blocks.add(new BlockData(x, y, z, blockType, light));
                     }
                 }
             }
@@ -255,7 +259,9 @@ public class ChunkStreamService {
                     if (blockType.equals("vegetation")) continue;
                     
                     if (blockType.equals("water") || hasExposedFace(world, x, y, z)) {
-                        blocks.add(new BlockData(x, y, z, blockType));
+                        // Get light from exposed faces for proper rendering
+                        int light = getExposedFaceLight(world, x, y, z);
+                        blocks.add(new BlockData(x, y, z, blockType, light));
                     }
                 }
             }
@@ -302,6 +308,26 @@ public class ChunkStreamService {
                isTransparent(world.getBlockAt(x, y - 1, z).getType()) ||
                isTransparent(world.getBlockAt(x, y, z + 1).getType()) ||
                isTransparent(world.getBlockAt(x, y, z - 1).getType());
+    }
+    
+    /**
+     * Get the maximum light level from adjacent transparent blocks
+     * This gives us the light level that would illuminate the exposed faces of a solid block
+     */
+    private int getExposedFaceLight(World world, int x, int y, int z) {
+        int maxLight = 0;
+        
+        // Check all 6 adjacent blocks
+        int[][] offsets = {{1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}};
+        for (int[] off : offsets) {
+            Block adj = world.getBlockAt(x + off[0], y + off[1], z + off[2]);
+            if (isTransparent(adj.getType())) {
+                int light = Math.max(adj.getLightFromSky(), adj.getLightFromBlocks());
+                if (light > maxLight) maxLight = light;
+            }
+        }
+        
+        return maxLight;
     }
     
     /**
@@ -369,7 +395,8 @@ public class ChunkStreamService {
             json.append("{\"x\":").append(block.x);
             json.append(",\"y\":").append(block.y);
             json.append(",\"z\":").append(block.z);
-            json.append(",\"type\":\"").append(block.type).append("\"}");
+            json.append(",\"type\":\"").append(block.type).append("\"");
+            json.append(",\"l\":").append(block.light).append("}");
         }
         
         json.append("]}");
@@ -724,12 +751,14 @@ public class ChunkStreamService {
     private static class BlockData {
         final int x, y, z;
         final String type;
+        final int light; // Combined light level (0-15)
         
-        BlockData(int x, int y, int z, String type) {
+        BlockData(int x, int y, int z, String type, int light) {
             this.x = x;
             this.y = y;
             this.z = z;
             this.type = type;
+            this.light = light;
         }
     }
     

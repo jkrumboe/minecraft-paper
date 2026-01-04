@@ -6,7 +6,7 @@ Real-time 3D visualization of Minecraft player positions from the McGpsTelemetry
 
 ✨ **Real-time Updates** - Uses Server-Sent Events (SSE) to stream player positions  
 🎮 **3D Visualization** - Three.js powered 3D world with authentic Minecraft textures  
-🧱 **Real Minecraft Textures** - Load actual textures from Minecraft 1.20.4 JAR for authentic look  
+🧱 **Real Minecraft Textures** - Load actual textures from Minecraft 1.21.4 JAR for authentic look  
 🌊 **Animated Textures** - Flowing water and lava animations like vanilla Minecraft  
 🎨 **Procedural Fallback** - Generated textures for 100+ block types when real textures unavailable  
 👤 **Player Skins** - Fetches real player skins from Mojang's Session Server API  
@@ -33,9 +33,9 @@ npm start
 ### 3. (Optional) Add Real Minecraft Textures
 For the authentic Minecraft look with animated water and lava:
 ```bash
-# Extract textures from your Minecraft 1.20.4 installation
+# Extract textures from your Minecraft 1.21.4 installation
 # See public/textures/README.md for detailed instructions
-unzip -j ~/.minecraft/versions/1.20.4/1.20.4.jar "assets/minecraft/textures/block/*" -d public/textures/
+unzip -j ~/.minecraft/versions/1.21.4/1.21.4.jar "assets/minecraft/textures/block/*" -d public/textures/
 ```
 
 ### 4. Open in Browser
@@ -46,7 +46,7 @@ Navigate to: **http://localhost:3000**
 - Node.js 14 or higher
 - Docker running with `minecraft-paper` container
 - McGpsTelemetry plugin installed and running on the Minecraft server
-- (Optional) Minecraft 1.20.4 installation for extracting textures
+- (Optional) Minecraft 1.21.4 installation for extracting textures
 
 ## Texture System
 
